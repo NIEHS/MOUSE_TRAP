@@ -4,14 +4,9 @@ This repository houses various software tools and code developed for the Neurobe
 
 - [**File Converter**:](#file-converter) A multi-format file converter built with PyQt6.
 
----
-
-
 ## About the Neurobehavioral Circuits Group
 
 Led by Julieta Lischinsky, Ph.D., the group investigates the developmental and circuit mechanisms underlying social behaviors and how these processes are affected by environmental stressors. For collaboration or more information, please contact Julieta Lischinsky.
-
----
 
 ## File Converter
 
@@ -26,15 +21,11 @@ Located in the `File Converter` folder, this tool provides:
 - **Graphical User Interface:**  
   Developed in PyQt6 for easy file selection, option configuration, and progress monitoring.
 
----
-
 ## Prerequisites
 
 - **Python 3.13.1+**
 - **Dependencies:** PyQt6, OpenCV, Pillow, pdf2image, pypandoc, docx2pdf
 - **External Tools:** FFmpeg, Poppler (for pdf2image), Pandoc (for pypandoc)
-
----
 
 ## Installation
 
@@ -57,8 +48,6 @@ Located in the `File Converter` folder, this tool provides:
    ```
    
    Otherwise, install the required packages individually.
-
----
 
 ## Usage
 
