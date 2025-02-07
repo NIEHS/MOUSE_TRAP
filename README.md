@@ -30,7 +30,7 @@ Located in the `File Converter` folder, this tool provides:
 
 ## Prerequisites
 
-- **Python 3.7+**
+- **Python 3.13.1+**
 - **Dependencies:** PyQt6, OpenCV, Pillow, pdf2image, pypandoc, docx2pdf
 - **External Tools:** FFmpeg, Poppler (for pdf2image), Pandoc (for pypandoc)
 
@@ -51,8 +51,6 @@ Located in the `File Converter` folder, this tool provides:
    ```
 
 3. **Install Dependencies:**
-
-   If a `requirements.txt` is provided:
    
    ```bash
    pip install -r requirements.txt
