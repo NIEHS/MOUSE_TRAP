@@ -1,4 +1,4 @@
-# NBCG - NIEHS Neurobehavioral Circuits Group Code
+# NIEHS Neurobehavioral Circuits Group Code
 
 This repository houses various software tools and code developed for the Neurobehavioral Circuits Group. It currently includes:
 
@@ -6,7 +6,7 @@ This repository houses various software tools and code developed for the Neurobe
 
 ## About the Neurobehavioral Circuits Group
 
-Led by Julieta Lischinsky, Ph.D., the group investigates the developmental and circuit mechanisms underlying social behaviors and how these processes are affected by environmental stressors. For collaboration or more information, please contact Julieta Lischinsky.
+Led by Dr. Julieta Lischinsky, the group investigates the developmental and circuit mechanisms underlying social behaviors and how these processes are affected by environmental stressors.
 
 ## File Converter
 
