@@ -1,0 +1,41 @@
+# macOS-specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon files
+Icon?
+
+# Resource fork files (macOS)
+._*
+
+# Windows thumbnail cache files
+Thumbs.db
+ehthumbs.db
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment directories
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Editor and IDE directories/files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Backup and temporary files
+*~
+*.swp
+*.bak
+*.tmp
+
+# Log files
+*.log
