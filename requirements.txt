@@ -1,0 +1,7 @@
+docx2pdf==0.1.8
+opencv_python==4.11.0.86
+pdf2image==1.17.0
+Pillow==11.1.0
+pypandoc==1.15
+PyQt6==6.8.0
+PyQt6_sip==13.9.1
