@@ -23,7 +23,7 @@ Located in the `File Converter` folder, this tool provides:
 
 ## Prerequisites
 
-- **Python 3.13.1+**
+- **Python 3.13.1**
 - **Dependencies:** PyQt6, OpenCV, Pillow, pdf2image, pypandoc, docx2pdf
 - **External Tools:** FFmpeg, Poppler (for pdf2image), Pandoc (for pypandoc)
 
