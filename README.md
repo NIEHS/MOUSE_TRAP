@@ -1,6 +1,6 @@
 # NIEHS Neurobehavioral Circuits Group Code
 
-This repository houses various software tools and code developed for the Neurobehavioral Circuits Group. It currently includes:
+This repository houses various software tools and code developed for and by the Neurobehavioral Circuits Group. It currently includes:
 
 - [**File Converter**:](#file-converter) A multi-format file converter built with PyQt6.
 
