@@ -1,4 +1,4 @@
-# Modular Unsupervised poSe Estimation and TRacking with behavioral Annotation and Prediction (MOUSE TRAP)
+# MOdular Unsupervised poSe Estimation and TRacking with behavioral Annotation and Prediction (MOUSE TRAP)
 
 This repository houses various software tools and code developed for and by the Neurobehavioral Circuits Group. It currently includes:
 
