@@ -8,14 +8,16 @@ from PIL import Image
 from pdf2image import convert_from_path
 import pypandoc
 from docx2pdf import convert as docx2pdf_convert
+import csv
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QPushButton, QLabel, QVBoxLayout,
     QHBoxLayout, QComboBox, QFileDialog, QProgressBar, QMessageBox,
-    QSizePolicy, QCheckBox, QInputDialog, QDialog, QSlider
+    QSizePolicy, QCheckBox, QInputDialog, QDialog, QSlider, QGroupBox,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QSplitter, QMenu
 )
 from PyQt6.QtGui import QPixmap, QImage
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QUrl
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QUrl, QTimer, QEvent
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
@@ -251,15 +253,29 @@ class VideoAnnotationDialog(QDialog):
         # Open a separate VideoCapture for generating preview images.
         self.cap_preview = cv2.VideoCapture(self.video_path)
         
-        # Allow the dialog to receive key events.
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Timer for differentiating single vs. double click.
+        self.singleClickTimer = QTimer(self)
+        self.singleClickTimer.setSingleShot(True)
+        self.singleClickTimer.timeout.connect(self.perform_single_click)
+        self.clicked_row = None
+        self.clicked_column = None
+        
+        self.init_video_section()
+        self.init_annotation_panel()
+        self.setup_splitter()
+        
+        # Install event filter on the annotation table to catch Delete key.
+        self.annotationTable.installEventFilter(self)
 
-        self.init_ui()
-        # Start at frame 1 (i.e. at time = frame_duration in ms).
+        # Start at frame 1.
         initial_position = int(1000 / self.fps)
         self.mediaPlayer.setPosition(initial_position)
 
-    def init_ui(self):
+    def init_video_section(self):
+        self.videoSection = QWidget(self)
+        layout = QVBoxLayout(self.videoSection)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
         # Set up multimedia objects for video playback.
         self.mediaPlayer = QMediaPlayer(self)
         self.audioOutput = QAudioOutput(self)
@@ -268,23 +284,21 @@ class VideoAnnotationDialog(QDialog):
         self.mediaPlayer.setVideoOutput(self.videoWidget)
         self.mediaPlayer.setSource(QUrl.fromLocalFile(self.video_path))
 
-        # Preview label (shows a snapshot of the current frame).
+        # Preview label.
         self.previewLabel = QLabel(self)
         self.previewLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Allow resizing by setting a minimum height and expanding policy.
         self.previewLabel.setMinimumHeight(100)
         self.previewLabel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Create a slider for video position.
+        # Slider for video position.
         self.positionSlider = QSlider(Qt.Orientation.Horizontal, self)
         self.positionSlider.setRange(0, 0)
         self.positionSlider.sliderMoved.connect(self.set_position)
-        # When the slider is released, round its value to the nearest frame.
         self.positionSlider.sliderReleased.connect(self.slider_released)
         self.mediaPlayer.positionChanged.connect(self.position_changed)
         self.mediaPlayer.durationChanged.connect(self.duration_changed)
 
-        # Create control buttons.
+        # Control buttons.
         self.playButton = QPushButton("Play", self)
         self.playButton.clicked.connect(self.toggle_play)
         self.markEnterButton = QPushButton("Mark Enter", self)
@@ -294,10 +308,10 @@ class VideoAnnotationDialog(QDialog):
         self.doneButton = QPushButton("Done", self)
         self.doneButton.clicked.connect(self.accept)
 
-        # Label to show current frame number.
+        # Frame label.
         self.frameLabel = QLabel("Frame: 1", self)
 
-        # Create a scrub step combo box.
+        # Scrub step combo box.
         self.scrubStepCombo = QComboBox(self)
         self.scrubStepCombo.addItems(["1", "10", "100", "1000"])
         self.scrubStepCombo.setCurrentIndex(0)
@@ -306,22 +320,183 @@ class VideoAnnotationDialog(QDialog):
         scrubLayout.addWidget(self.scrubStepCombo)
         scrubLayout.addStretch()
 
-        # Layout setup.
+        # Control layout.
         controlLayout = QHBoxLayout()
         controlLayout.addWidget(self.playButton)
         controlLayout.addWidget(self.markEnterButton)
         controlLayout.addWidget(self.markExitButton)
         controlLayout.addWidget(self.doneButton)
 
-        layout = QVBoxLayout()
         layout.addWidget(self.videoWidget)
-        # Add the preview above the slider.
         layout.addWidget(self.previewLabel)
         layout.addWidget(self.positionSlider)
         layout.addLayout(scrubLayout)
         layout.addWidget(self.frameLabel)
         layout.addLayout(controlLayout)
-        self.setLayout(layout)
+
+    def init_annotation_panel(self):
+        self.annotationGroup = QGroupBox("Annotations", self)
+        annLayout = QVBoxLayout(self.annotationGroup)
+        annLayout.setContentsMargins(5, 5, 5, 5)
+
+        # Buttons for CSV import and clearing.
+        btnLayout = QHBoxLayout()
+        self.importCSVButton = QPushButton("Import CSV", self)
+        self.importCSVButton.clicked.connect(self.import_csv_annotations)
+        self.clearAnnotationsButton = QPushButton("Clear Annotations", self)
+        self.clearAnnotationsButton.clicked.connect(self.clear_annotations)
+        btnLayout.addWidget(self.importCSVButton)
+        btnLayout.addWidget(self.clearAnnotationsButton)
+        btnLayout.addStretch()
+        annLayout.addLayout(btnLayout)
+
+        # Annotation table.
+        self.annotationTable = QTableWidget(self)
+        self.annotationTable.setColumnCount(3)
+        self.annotationTable.setHorizontalHeaderLabels(["Intruder", "Enter", "Exit"])
+        # Allow editing on double-click.
+        self.annotationTable.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        # Single-click vs. double-click handling.
+        self.annotationTable.cellClicked.connect(self.on_cell_clicked)
+        self.annotationTable.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        # Right-click context menu.
+        self.annotationTable.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.annotationTable.customContextMenuRequested.connect(self.show_context_menu)
+        self.annotationTable.itemChanged.connect(self.table_item_changed)
+        annLayout.addWidget(self.annotationTable)
+
+        self.refresh_annotation_table()
+
+    def setup_splitter(self):
+        splitter = QSplitter(Qt.Orientation.Vertical, self)
+        splitter.addWidget(self.videoSection)
+        splitter.addWidget(self.annotationGroup)
+        splitter.setSizes([400, 200])
+        splitter.setChildrenCollapsible(False)
+        mainLayout = QVBoxLayout(self)
+        mainLayout.addWidget(splitter)
+        self.setLayout(mainLayout)
+
+    def on_cell_clicked(self, row, column):
+        self.clicked_row = row
+        self.clicked_column = column
+        self.singleClickTimer.start(250)
+
+    def on_cell_double_clicked(self, row, column):
+        if self.singleClickTimer.isActive():
+            self.singleClickTimer.stop()
+        # Double-click will trigger in-cell editing.
+
+    def perform_single_click(self):
+        if self.clicked_column in [1, 2]:
+            item = self.annotationTable.item(self.clicked_row, self.clicked_column)
+            try:
+                frame = int(item.text())
+                frame_ms = int(frame * (1000 / self.fps))
+                self.mediaPlayer.setPosition(frame_ms)
+            except ValueError:
+                pass
+
+    def show_context_menu(self, pos):
+        index = self.annotationTable.indexAt(pos)
+        if not index.isValid():
+            return
+        row = index.row()
+        menu = QMenu(self)
+        duplicate_action = menu.addAction("Duplicate")
+        delete_action = menu.addAction("Delete")
+        action = menu.exec(self.annotationTable.viewport().mapToGlobal(pos))
+        intruder = self.annotationTable.item(row, 0).text()
+        if action == duplicate_action:
+            original = self.annotations.get(intruder)
+            new_intruder = intruder + "_copy"
+            copy_index = 1
+            while new_intruder in self.annotations:
+                copy_index += 1
+                new_intruder = f"{intruder}_copy{copy_index}"
+            self.annotations[new_intruder] = {"enter": original["enter"], "exit": original["exit"]}
+            self.refresh_annotation_table()
+        elif action == delete_action:
+            if intruder in self.annotations:
+                del self.annotations[intruder]
+                self.refresh_annotation_table()
+
+    def eventFilter(self, source, event):
+        if source is self.annotationTable and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Delete:
+                selected_rows = {item.row() for item in self.annotationTable.selectedItems()}
+                for row in sorted(selected_rows, reverse=True):
+                    intruder = self.annotationTable.item(row, 0).text()
+                    if intruder in self.annotations:
+                        del self.annotations[intruder]
+                self.refresh_annotation_table()
+                return True
+        return super().eventFilter(source, event)
+
+    def import_csv_annotations(self):
+        fileName, _ = QFileDialog.getOpenFileName(self, "Import CSV Annotations", "", "CSV Files (*.csv)")
+        if not fileName:
+            return
+        try:
+            with open(fileName, newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+                expected_headers = ["intruder", "enter", "exit"]
+                missing = [h for h in expected_headers if h not in reader.fieldnames]
+                if missing:
+                    QMessageBox.critical(self, "CSV Error", f"Missing header(s): {', '.join(missing)}")
+                    return
+                csv_annotations = {}
+                for row in reader:
+                    intruder = row["intruder"]
+                    enter = int(row["enter"])
+                    exit_frame = int(row["exit"])
+                    csv_annotations[intruder] = {"enter": enter, "exit": exit_frame}
+        except Exception as e:
+            QMessageBox.critical(self, "CSV Error", f"Error reading CSV: {str(e)}")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Merge or Replace",
+            "Do you want to merge with existing annotations? (Selecting No will replace them)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.No:
+            self.annotations = {}
+        self.annotations.update(csv_annotations)
+        self.refresh_annotation_table()
+        QMessageBox.information(self, "CSV Imported", "CSV annotations imported successfully.")
+
+    def clear_annotations(self):
+        self.annotations = {}
+        self.refresh_annotation_table()
+
+    def refresh_annotation_table(self):
+        self.annotationTable.blockSignals(True)
+        self.annotationTable.setRowCount(0)
+        for i, (intruder, data) in enumerate(self.annotations.items()):
+            self.annotationTable.insertRow(i)
+            intruder_item = QTableWidgetItem(intruder)
+            intruder_item.setFlags(intruder_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.annotationTable.setItem(i, 0, intruder_item)
+            enter_item = QTableWidgetItem(str(data.get("enter", "")))
+            self.annotationTable.setItem(i, 1, enter_item)
+            exit_item = QTableWidgetItem(str(data.get("exit", "")))
+            self.annotationTable.setItem(i, 2, exit_item)
+        self.annotationTable.blockSignals(False)
+
+    def table_item_changed(self, item):
+        row = item.row()
+        intruder_item = self.annotationTable.item(row, 0)
+        if not intruder_item:
+            return
+        intruder = intruder_item.text()
+        try:
+            enter = int(self.annotationTable.item(row, 1).text())
+            exit_val = int(self.annotationTable.item(row, 2).text())
+        except (ValueError, AttributeError):
+            return
+        self.annotations[intruder] = {"enter": enter, "exit": exit_val}
 
     def toggle_play(self):
         if self.mediaPlayer.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
@@ -333,39 +508,32 @@ class VideoAnnotationDialog(QDialog):
 
     def position_changed(self, position):
         self.positionSlider.setValue(position)
-        # Calculate current frame number.
         frame = int(position / 1000.0 * self.fps)
-        # We want to start counting from 1.
         self.frameLabel.setText(f"Frame: {frame if frame > 0 else 1}")
         self.update_preview()
 
     def duration_changed(self, duration):
         self.positionSlider.setRange(0, duration)
-        # Set slider's single step to one frame (in ms).
         self.positionSlider.setSingleStep(int(1000 / self.fps))
 
     def set_position(self, position):
         self.mediaPlayer.setPosition(position)
 
     def slider_released(self):
-        # Round slider value to nearest frame.
         pos = self.positionSlider.value()
         frame_ms = int(1000 / self.fps)
         rounded = round(pos / frame_ms) * frame_ms
         self.mediaPlayer.setPosition(rounded)
 
     def update_preview(self):
-        # Use the separate cv2.VideoCapture to grab the frame corresponding to the current position.
-        position = self.mediaPlayer.position()  # in ms
+        position = self.mediaPlayer.position()
         self.cap_preview.set(cv2.CAP_PROP_POS_MSEC, position)
         ret, frame = self.cap_preview.read()
         if ret:
-            # Convert BGR (OpenCV) to RGB.
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             height, width, channel = frame_rgb.shape
             bytes_per_line = channel * width
             qimg = QImage(frame_rgb.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
-            # Scale the image to fit the preview label.
             pixmap = QPixmap.fromImage(qimg).scaled(
                 self.previewLabel.width(), self.previewLabel.height(),
                 Qt.AspectRatioMode.KeepAspectRatio,
@@ -373,8 +541,15 @@ class VideoAnnotationDialog(QDialog):
             )
             self.previewLabel.setPixmap(pixmap)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_preview()
+    
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self.update_preview)
+
     def keyPressEvent(self, event):
-        # Allow left/right arrow keys to move by a number of frames based on the scrub step.
         try:
             step = int(self.scrubStepCombo.currentText())
         except ValueError:
@@ -390,15 +565,9 @@ class VideoAnnotationDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
-    def resizeEvent(self, event):
-        # When the window is resized, update the preview immediately.
-        super().resizeEvent(event)
-        self.update_preview()
-
     def mark_enter(self):
-        current_position = self.mediaPlayer.position()  # in ms
+        current_position = self.mediaPlayer.position()
         frame = int(current_position / 1000.0 * self.fps)
-        # Ensure we show frame number starting at 1.
         frame = frame if frame > 0 else 1
         intruder_name, ok = QInputDialog.getText(self, "Intruder Name", "Enter intruder name for entry:")
         if ok and intruder_name:
@@ -409,19 +578,17 @@ class VideoAnnotationDialog(QDialog):
                     self.annotations[intruder_name] = {}
                 self.annotations[intruder_name]["enter"] = frame
                 QMessageBox.information(self, "Annotation", f"Marked enter for {intruder_name} at frame {frame}.")
+                self.refresh_annotation_table()
 
     def mark_exit(self):
-        current_position = self.mediaPlayer.position()  # in ms
+        current_position = self.mediaPlayer.position()
         frame = int(current_position / 1000.0 * self.fps)
         frame = frame if frame > 0 else 1
-        # Gather list of intruders with an 'enter' marker but no 'exit'
         available = [name for name, data in self.annotations.items() if "enter" in data and "exit" not in data]
         if available:
-            # Let the user choose one from a drop-down list.
             intruder_name, ok = QInputDialog.getItem(self, "Select Intruder",
                                                      "Select intruder for exit:", available, 0, False)
         else:
-            # If none available, ask for a new name.
             intruder_name, ok = QInputDialog.getText(self, "Intruder Name", "Enter intruder name for exit:")
         if ok and intruder_name:
             if intruder_name in self.annotations and "exit" in self.annotations[intruder_name]:
@@ -431,9 +598,9 @@ class VideoAnnotationDialog(QDialog):
                     self.annotations[intruder_name] = {}
                 self.annotations[intruder_name]["exit"] = frame
                 QMessageBox.information(self, "Annotation", f"Marked exit for {intruder_name} at frame {frame}.")
+                self.refresh_annotation_table()
 
     def closeEvent(self, event):
-        # Release the preview VideoCapture when the dialog is closed.
         if self.cap_preview.isOpened():
             self.cap_preview.release()
         event.accept()
@@ -500,7 +667,6 @@ class MainWindow(QMainWindow):
         annotation_layout = QHBoxLayout()
         self.clip_checkbox = QCheckBox("Clip using Annotation")
         annotation_layout.addWidget(self.clip_checkbox)
-        # The external annotation file selection is no longer used.
         self.select_annotation_file_button = QPushButton("Select Annotation File")
         self.select_annotation_file_button.setEnabled(False)
         self.select_annotation_file_button.clicked.connect(self.select_annotation_file)
@@ -596,7 +762,6 @@ class MainWindow(QMainWindow):
             self.output_combo.addItem(".mp4")
 
     def select_annotation_file(self):
-        # Not used in the integrated approach.
         file_dialog = QFileDialog()
         file_path, _ = file_dialog.getOpenFileName(self, "Select Annotation File", filter="Text Files (*.txt)")
         if file_path:
@@ -627,18 +792,28 @@ class MainWindow(QMainWindow):
                 self.output_file = self.input_file.with_suffix(output_ext)
 
             if self.clip_checkbox.isChecked():
-                # For clipping, we require .seq or .mp4 input and .mp4 output.
-                if self.current_extension not in [".seq", ".mp4"] or output_ext != ".mp4":
+                # Allow clipping if input is .seq or .mp4.
+                if self.current_extension not in [".seq", ".mp4"]:
                     QMessageBox.critical(
                         self,
                         "Error",
-                        "Clipped output is only supported for .seq or .mp4 input to .mp4 output in this example."
+                        "Clipped output is only supported for .seq or .mp4 input in this example."
+                    )
+                    self.convert_button.setEnabled(True)
+                    self.select_file_button.setEnabled(True)
+                    return
+                # Disallow .gif output for clipping.
+                if output_ext == ".gif":
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        "GIF output is not supported for clipping."
                     )
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
 
-                # Convert the video to AVI (if needed) for annotation.
+                # For .seq input, convert to temporary AVI for annotation.
                 if self.current_extension == ".seq":
                     self.temp_avi_file = self.input_file.parent / (self.input_file.stem + "_temp.avi")
                     success, message = video_to_avi(self.input_file, self.temp_avi_file)
@@ -648,10 +823,8 @@ class MainWindow(QMainWindow):
                         self.select_file_button.setEnabled(True)
                         return
                 else:
-                    # For .mp4, we can use the original file.
                     self.temp_avi_file = self.input_file
 
-                # Launch the integrated annotation dialog.
                 annot_dialog = VideoAnnotationDialog(self.temp_avi_file)
                 if annot_dialog.exec() == QDialog.DialogCode.Accepted:
                     annotations = annot_dialog.annotations
@@ -744,7 +917,6 @@ class MainWindow(QMainWindow):
             intervals.append((enter_frame, exit_frame, intruder))
         
         intervals.sort(key=lambda x: x[0])
-        # Optionally check for overlapping intervals.
         for i in range(len(intervals) - 1):
             if intervals[i+1][0] <= intervals[i][1]:
                 return False, (
@@ -760,7 +932,11 @@ class MainWindow(QMainWindow):
             fps = 25
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # Choose codec based on output extension.
+        ext = self.output_file.suffix.lower()
+        codec_map = {".mp4": "mp4v", ".avi": "MJPG", ".mov": "mp4v", ".mkv": "mp4v"}
+        codec_str = codec_map.get(ext, "mp4v")
+        fourcc = cv2.VideoWriter_fourcc(*codec_str)
 
         for (enter_frame, exit_frame, intruder) in intervals:
             output_name = f"{self.output_file.stem}_{intruder}intruder{self.output_file.suffix}"

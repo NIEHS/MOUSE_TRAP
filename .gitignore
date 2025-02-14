@@ -39,3 +39,6 @@ venv.bak/
 
 # Log files
 *.log
+
+# Debug files
+test.mp4
