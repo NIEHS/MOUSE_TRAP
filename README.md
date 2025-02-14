@@ -32,16 +32,16 @@ Located in the `File Converter` folder, this tool provides:
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/rmharp/NBCG.git
+   git clone https://github.com/NIEHS/MOUSE_TRAP.git
    ```
 
 2. **Navigate to the Project Directory:**
 
    ```bash
-   cd NBCG
+   cd MOUSE_TRAP
    ```
 
-3. **Install Dependencies:**
+3. **Install Dependencies into Conda Env:**
    
    ```bash
    pip install -r requirements.txt
@@ -54,7 +54,7 @@ Located in the `File Converter` folder, this tool provides:
 To run the File Converter tool:
 
 ```bash
-python "File Converter/main.py"
+python "main.py"
 ```
 
 A GUI will launch for file selection, conversion options, and progress monitoring.
