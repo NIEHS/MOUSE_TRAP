@@ -36,14 +36,14 @@ def video_to_avi(input_path, avi_path):
         '-qscale:v', '2',
         '-pix_fmt', 'yuvj420p',
         '-vtag', 'MJPG',
-        '-r', '25',   # Force 25 fps
+        '-r', '25',
         '-y',
         str(avi_path)
     ]
     process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if process.returncode != 0:
         return False, f"FFmpeg error: {process.stderr.decode('utf-8')}"
-    time.sleep(1)  # ensure file is written
+    time.sleep(1)
     if not avi_path.exists() or avi_path.stat().st_size < 1000:
         return False, f"Output AVI file {avi_path} seems empty or invalid."
     return True, f"Converted {input_path} to temporary AVI: {avi_path}"
@@ -66,6 +66,10 @@ class ConversionThread(QThread):
             success, msg = False, "Unknown conversion"
             if self.conversion_type == 'seq_to_mp4':
                 success, msg = self.seq_to_mp4()
+            elif self.conversion_type == 'seq_to_avi':
+                success, msg = self.seq_to_avi()
+            elif self.conversion_type == 'video_to_avi':
+                success, msg = video_to_avi(self.input_file, self.output_file)
             elif self.conversion_type == 'video_to_video':
                 success, msg = self.ffmpeg_video_convert()
             elif self.conversion_type == 'image_to_image':
@@ -98,7 +102,7 @@ class ConversionThread(QThread):
             return False, f"Could not open {self.input_file} as .seq."
         fps = cap.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
-            fps = 25  # default to 25 fps
+            fps = 25
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -117,6 +121,32 @@ class ConversionThread(QThread):
         cap.release()
         out.release()
         return True, f"Converted .seq to .mp4: {self.output_file}"
+
+    def seq_to_avi(self):
+        cap = cv2.VideoCapture(str(self.input_file))
+        if not cap.isOpened():
+            return False, f"Could not open {self.input_file} as .seq."
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 25
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out = cv2.VideoWriter(str(self.output_file), fourcc, fps, (width, height))
+        frame_count = 0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            out.write(frame)
+            frame_count += 1
+            if total_frames > 0:
+                progress_percent = int((frame_count / total_frames) * 100)
+                self.progress_signal.emit(progress_percent)
+        cap.release()
+        out.release()
+        return True, f"Converted .seq to .avi: {self.output_file}"
 
     def ffmpeg_video_convert(self):
         cmd = [
@@ -239,21 +269,19 @@ class ConversionThread(QThread):
 class VideoAnnotationDialog(QDialog):
     def __init__(self, video_path, parent=None):
         super().__init__(parent)
+        # Set standard window flags to include normal decorations (title bar, minimize, maximize)
+        self.setWindowFlags(Qt.WindowType.Window)
         self.setWindowTitle("Video Annotation")
         self.video_path = str(video_path)
         self.annotations = {}  # { intruderName: {"enter": frame, "exit": frame} }
         
-        # Get FPS from the video using OpenCV.
         cap = cv2.VideoCapture(self.video_path)
         self.fps = cap.get(cv2.CAP_PROP_FPS)
         if self.fps <= 0:
             self.fps = 25
         cap.release()
         
-        # Open a separate VideoCapture for generating preview images.
         self.cap_preview = cv2.VideoCapture(self.video_path)
-        
-        # Timer for differentiating single vs. double click.
         self.singleClickTimer = QTimer(self)
         self.singleClickTimer.setSingleShot(True)
         self.singleClickTimer.timeout.connect(self.perform_single_click)
@@ -263,11 +291,7 @@ class VideoAnnotationDialog(QDialog):
         self.init_video_section()
         self.init_annotation_panel()
         self.setup_splitter()
-        
-        # Install event filter on the annotation table to catch Delete key.
         self.annotationTable.installEventFilter(self)
-
-        # Start at frame 1.
         initial_position = int(1000 / self.fps)
         self.mediaPlayer.setPosition(initial_position)
 
@@ -276,7 +300,6 @@ class VideoAnnotationDialog(QDialog):
         layout = QVBoxLayout(self.videoSection)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Set up multimedia objects for video playback.
         self.mediaPlayer = QMediaPlayer(self)
         self.audioOutput = QAudioOutput(self)
         self.mediaPlayer.setAudioOutput(self.audioOutput)
@@ -284,13 +307,11 @@ class VideoAnnotationDialog(QDialog):
         self.mediaPlayer.setVideoOutput(self.videoWidget)
         self.mediaPlayer.setSource(QUrl.fromLocalFile(self.video_path))
 
-        # Preview label.
         self.previewLabel = QLabel(self)
         self.previewLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.previewLabel.setMinimumHeight(100)
         self.previewLabel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Slider for video position.
         self.positionSlider = QSlider(Qt.Orientation.Horizontal, self)
         self.positionSlider.setRange(0, 0)
         self.positionSlider.sliderMoved.connect(self.set_position)
@@ -298,7 +319,6 @@ class VideoAnnotationDialog(QDialog):
         self.mediaPlayer.positionChanged.connect(self.position_changed)
         self.mediaPlayer.durationChanged.connect(self.duration_changed)
 
-        # Control buttons.
         self.playButton = QPushButton("Play", self)
         self.playButton.clicked.connect(self.toggle_play)
         self.markEnterButton = QPushButton("Mark Enter", self)
@@ -308,10 +328,8 @@ class VideoAnnotationDialog(QDialog):
         self.doneButton = QPushButton("Done", self)
         self.doneButton.clicked.connect(self.accept)
 
-        # Frame label.
         self.frameLabel = QLabel("Frame: 1", self)
 
-        # Scrub step combo box.
         self.scrubStepCombo = QComboBox(self)
         self.scrubStepCombo.addItems(["1", "10", "100", "1000"])
         self.scrubStepCombo.setCurrentIndex(0)
@@ -320,7 +338,6 @@ class VideoAnnotationDialog(QDialog):
         scrubLayout.addWidget(self.scrubStepCombo)
         scrubLayout.addStretch()
 
-        # Control layout.
         controlLayout = QHBoxLayout()
         controlLayout.addWidget(self.playButton)
         controlLayout.addWidget(self.markEnterButton)
@@ -339,7 +356,6 @@ class VideoAnnotationDialog(QDialog):
         annLayout = QVBoxLayout(self.annotationGroup)
         annLayout.setContentsMargins(5, 5, 5, 5)
 
-        # Buttons for CSV import and clearing.
         btnLayout = QHBoxLayout()
         self.importCSVButton = QPushButton("Import CSV", self)
         self.importCSVButton.clicked.connect(self.import_csv_annotations)
@@ -350,16 +366,12 @@ class VideoAnnotationDialog(QDialog):
         btnLayout.addStretch()
         annLayout.addLayout(btnLayout)
 
-        # Annotation table.
         self.annotationTable = QTableWidget(self)
         self.annotationTable.setColumnCount(3)
         self.annotationTable.setHorizontalHeaderLabels(["Intruder", "Enter", "Exit"])
-        # Allow editing on double-click.
         self.annotationTable.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
-        # Single-click vs. double-click handling.
         self.annotationTable.cellClicked.connect(self.on_cell_clicked)
         self.annotationTable.cellDoubleClicked.connect(self.on_cell_double_clicked)
-        # Right-click context menu.
         self.annotationTable.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.annotationTable.customContextMenuRequested.connect(self.show_context_menu)
         self.annotationTable.itemChanged.connect(self.table_item_changed)
@@ -385,7 +397,6 @@ class VideoAnnotationDialog(QDialog):
     def on_cell_double_clicked(self, row, column):
         if self.singleClickTimer.isActive():
             self.singleClickTimer.stop()
-        # Double-click will trigger in-cell editing.
 
     def perform_single_click(self):
         if self.clicked_column in [1, 2]:
@@ -605,8 +616,15 @@ class VideoAnnotationDialog(QDialog):
             self.cap_preview.release()
         event.accept()
 
+    # Standard window decorations now provide a full screen/maximize button.
+    def toggle_full_screen(self):
+        if self.windowState() & Qt.WindowState.WindowFullScreen:
+            self.setWindowState(Qt.WindowState.WindowNoState)
+        else:
+            self.setWindowState(Qt.WindowState.WindowFullScreen)
+
 # -----------------------------------------------------------------------------
-# MainWindow (PyQt6 GUI)
+# MainWindow (File Converter & Video Annotator)
 # -----------------------------------------------------------------------------
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -640,7 +658,6 @@ class MainWindow(QMainWindow):
         bottom_container = QWidget()
         bottom_layout = QVBoxLayout(bottom_container)
 
-        # File selection
         file_layout = QHBoxLayout()
         self.file_label = QLabel("No file selected")
         self.select_file_button = QPushButton("Select File")
@@ -649,7 +666,6 @@ class MainWindow(QMainWindow):
         file_layout.addWidget(self.select_file_button)
         bottom_layout.addLayout(file_layout)
 
-        # Options group
         options_group_layout = QVBoxLayout()
         options_layout = QHBoxLayout()
         self.multiple_files_checkbox = QCheckBox("Select Multiple Files")
@@ -708,7 +724,7 @@ class MainWindow(QMainWindow):
         self.temp_avi_file = None
 
         self.OUTPUT_FORMATS = {
-            ".seq":  [".mp4"],
+            ".seq":  [".mp4", ".avi"],
             ".avi":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
             ".mov":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
             ".mkv":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
@@ -792,7 +808,6 @@ class MainWindow(QMainWindow):
                 self.output_file = self.input_file.with_suffix(output_ext)
 
             if self.clip_checkbox.isChecked():
-                # Allow clipping if input is .seq or .mp4.
                 if self.current_extension not in [".seq", ".mp4"]:
                     QMessageBox.critical(
                         self,
@@ -802,7 +817,6 @@ class MainWindow(QMainWindow):
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
-                # Disallow .gif output for clipping.
                 if output_ext == ".gif":
                     QMessageBox.critical(
                         self,
@@ -812,8 +826,6 @@ class MainWindow(QMainWindow):
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
-
-                # For .seq input, convert to temporary AVI for annotation.
                 if self.current_extension == ".seq":
                     self.temp_avi_file = self.input_file.parent / (self.input_file.stem + "_temp.avi")
                     success, message = video_to_avi(self.input_file, self.temp_avi_file)
@@ -866,6 +878,10 @@ class MainWindow(QMainWindow):
     def determine_conversion_type(self, input_ext, output_ext):
         if input_ext == ".seq" and output_ext == ".mp4":
             return "seq_to_mp4"
+        elif input_ext == ".seq" and output_ext == ".avi":
+            return "seq_to_avi"
+        elif input_ext == ".mp4" and output_ext == ".avi":
+            return "video_to_avi"
         video_exts = [".mp4", ".avi", ".mov", ".mkv", ".gif"]
         if input_ext in video_exts and output_ext in video_exts:
             return "video_to_video"
@@ -932,12 +948,10 @@ class MainWindow(QMainWindow):
             fps = 25
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        # Choose codec based on output extension.
         ext = self.output_file.suffix.lower()
         codec_map = {".mp4": "mp4v", ".avi": "MJPG", ".mov": "mp4v", ".mkv": "mp4v"}
         codec_str = codec_map.get(ext, "mp4v")
         fourcc = cv2.VideoWriter_fourcc(*codec_str)
-
         for (enter_frame, exit_frame, intruder) in intervals:
             output_name = f"{self.output_file.stem}_{intruder}intruder{self.output_file.suffix}"
             if self.output_folder and self.output_folder_checkbox.isChecked():
@@ -956,6 +970,9 @@ class MainWindow(QMainWindow):
             out_writer.release()
         cap.release()
         return True, f"Successfully clipped intruders for file {self.input_file.name}."
+
+    def keyPressEvent(self, event):
+        super().keyPressEvent(event)
 
 # -----------------------------------------------------------------------------
 # Main Function
