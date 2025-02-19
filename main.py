@@ -403,7 +403,7 @@ class VideoAnnotationDialog(QDialog):
             item = self.annotationTable.item(self.clicked_row, self.clicked_column)
             try:
                 frame = int(item.text())
-                frame_ms = int(frame * (1000 / self.fps))
+                frame_ms = int((frame - 1) * (1000 / self.fps))
                 self.mediaPlayer.setPosition(frame_ms)
             except ValueError:
                 pass
@@ -519,7 +519,7 @@ class VideoAnnotationDialog(QDialog):
 
     def position_changed(self, position):
         self.positionSlider.setValue(position)
-        frame = int(position / 1000.0 * self.fps)
+        frame = int(position / 1000.0 * self.fps) + 1
         self.frameLabel.setText(f"Frame: {frame if frame > 0 else 1}")
         self.update_preview()
 
@@ -578,7 +578,7 @@ class VideoAnnotationDialog(QDialog):
 
     def mark_enter(self):
         current_position = self.mediaPlayer.position()
-        frame = int(current_position / 1000.0 * self.fps)
+        frame = int(current_position / 1000.0 * self.fps) + 1
         frame = frame if frame > 0 else 1
         intruder_name, ok = QInputDialog.getText(self, "Intruder Name", "Enter intruder name for entry:")
         if ok and intruder_name:
@@ -593,7 +593,7 @@ class VideoAnnotationDialog(QDialog):
 
     def mark_exit(self):
         current_position = self.mediaPlayer.position()
-        frame = int(current_position / 1000.0 * self.fps)
+        frame = int(current_position / 1000.0 * self.fps) + 1
         frame = frame if frame > 0 else 1
         available = [name for name, data in self.annotations.items() if "enter" in data and "exit" not in data]
         if available:
@@ -927,7 +927,7 @@ class MainWindow(QMainWindow):
             if "enter" not in data or "exit" not in data:
                 return False, f"Incomplete annotation for intruder '{intruder}'."
             enter_frame = data["enter"]
-            exit_frame = data["exit"]
+            exit_frame = data["exit"] - 1
             if exit_frame < enter_frame:
                 return False, f"Exit frame occurs before enter frame for intruder '{intruder}'."
             intervals.append((enter_frame, exit_frame, intruder))
@@ -960,13 +960,15 @@ class MainWindow(QMainWindow):
                 out_path = self.output_file.parent / output_name
             out_writer = cv2.VideoWriter(str(out_path), fourcc, fps, (width, height))
             cap.set(cv2.CAP_PROP_POS_FRAMES, enter_frame - 1)
-            current_frame = enter_frame
-            while current_frame <= exit_frame:
+            while True:
+                # Get the next frame index (0-indexed)
+                current_idx = cap.get(cv2.CAP_PROP_POS_FRAMES)
+                if current_idx >= exit_frame:
+                    break
                 ret, frame = cap.read()
                 if not ret:
                     break
                 out_writer.write(frame)
-                current_frame += 1
             out_writer.release()
         cap.release()
         return True, f"Successfully clipped intruders for file {self.input_file.name}."
