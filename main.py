@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QCheckBox, QInputDialog, QDialog, QSlider, QGroupBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QSplitter, QMenu
 )
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtGui import QPixmap, QImage, QPalette, QColor
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QUrl, QTimer, QEvent
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
@@ -60,6 +60,7 @@ class ConversionThread(QThread):
         self.input_file = Path(input_file)
         self.output_file = Path(output_file)
         self.conversion_type = conversion_type
+        self.total_duration_ms = None  # Only used for ffmpeg conversions if needed
 
     def run(self):
         try:
@@ -133,33 +134,65 @@ class ConversionThread(QThread):
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter(str(self.output_file), fourcc, fps, (width, height))
+
+        # Try to get total frame count from metadata
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            # Manually count frames if metadata is unavailable
+            total_frames = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                total_frames += 1
+            cap.release()
+            # Reopen the capture to start conversion from the beginning
+            cap = cv2.VideoCapture(str(self.input_file))
+
         frame_count = 0
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             out.write(frame)
             frame_count += 1
-            if total_frames > 0:
-                progress_percent = int((frame_count / total_frames) * 100)
-                self.progress_signal.emit(progress_percent)
+            progress_percent = int((frame_count / total_frames) * 100)
+            self.progress_signal.emit(progress_percent)
         cap.release()
         out.release()
+        self.progress_signal.emit(100)
         return True, f"Converted .seq to .avi: {self.output_file}"
 
     def ffmpeg_video_convert(self):
+        process = QProcess()
         cmd = [
-            'ffmpeg',
-            '-i', str(self.input_file),
-            '-y',
+            "ffmpeg",
+            "-i", str(self.input_file),
+            "-progress", "pipe:1",
+            "-y",
             str(self.output_file)
         ]
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        _, stderr = process.communicate()
-        if process.returncode != 0:
-            return False, f"FFmpeg error: {stderr.decode('utf-8')}"
-        return True, f"Video conversion to {self.output_file} completed."
+        process.setProgram(cmd[0])
+        process.setArguments(cmd[1:])
+        process.readyReadStandardOutput.connect(lambda: self.handle_ffmpeg_output(process))
+        process.start()
+        process.waitForFinished(-1)
+        if process.exitStatus() == QProcess.ExitStatus.NormalExit and process.exitCode() == 0:
+            return True, f"Video conversion to {self.output_file} completed."
+        else:
+            return False, "FFmpeg conversion failed."
+
+    def handle_ffmpeg_output(self, process):
+        output = process.readAllStandardOutput().data().decode()
+        for line in output.splitlines():
+            if line.startswith("out_time_ms="):
+                try:
+                    out_time_ms = int(line.split("=")[1])
+                    if self.total_duration_ms:
+                        percent = int((out_time_ms / self.total_duration_ms) * 100)
+                        self.progress_signal.emit(percent)
+                except Exception as e:
+                    pass
 
     def image_to_image(self):
         try:
@@ -279,6 +312,7 @@ class VideoAnnotationDialog(QDialog):
         self.fps = cap.get(cv2.CAP_PROP_FPS)
         if self.fps <= 0:
             self.fps = 25
+        self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
         
         self.cap_preview = cv2.VideoCapture(self.video_path)
@@ -519,7 +553,7 @@ class VideoAnnotationDialog(QDialog):
 
     def position_changed(self, position):
         self.positionSlider.setValue(position)
-        frame = int(position / 1000.0 * self.fps) + 1
+        frame = min(int(position / 1000.0 * self.fps) + 1, self.total_frames)
         self.frameLabel.setText(f"Frame: {frame if frame > 0 else 1}")
         self.update_preview()
 
@@ -535,6 +569,7 @@ class VideoAnnotationDialog(QDialog):
         frame_ms = int(1000 / self.fps)
         rounded = round(pos / frame_ms) * frame_ms
         self.mediaPlayer.setPosition(rounded)
+        QTimer.singleShot(150, self.update_preview)
 
     def update_preview(self):
         position = self.mediaPlayer.position()
@@ -578,8 +613,7 @@ class VideoAnnotationDialog(QDialog):
 
     def mark_enter(self):
         current_position = self.mediaPlayer.position()
-        frame = int(current_position / 1000.0 * self.fps) + 1
-        frame = frame if frame > 0 else 1
+        frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
         intruder_name, ok = QInputDialog.getText(self, "Intruder Name", "Enter intruder name for entry:")
         if ok and intruder_name:
             if intruder_name in self.annotations and "enter" in self.annotations[intruder_name]:
@@ -593,8 +627,7 @@ class VideoAnnotationDialog(QDialog):
 
     def mark_exit(self):
         current_position = self.mediaPlayer.position()
-        frame = int(current_position / 1000.0 * self.fps) + 1
-        frame = frame if frame > 0 else 1
+        frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
         available = [name for name, data in self.annotations.items() if "enter" in data and "exit" not in data]
         if available:
             intruder_name, ok = QInputDialog.getItem(self, "Select Intruder",
@@ -981,6 +1014,22 @@ class MainWindow(QMainWindow):
 # -----------------------------------------------------------------------------
 def main():
     app = QApplication(sys.argv)
+    # Override the application's palette with a light theme while preserving your current style.
+    palette = app.palette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 255))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Text, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 215))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+    app.setPalette(palette)
+    
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
