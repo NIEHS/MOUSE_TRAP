@@ -863,6 +863,16 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "CSV Imported", "CSV annotations mapping imported successfully.")
 
     def start_conversion(self):
+        # One-time prompt to decide if user wants to be prompted on every file.
+        reply = QMessageBox.question(
+            self,
+            "Prompt Setting",
+            "Do you want to be prompted on every file?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        self.prompt_on_each_file = (reply == QMessageBox.StandardButton.Yes)
+        
         if self.multiple_files_checkbox.isChecked() and self.input_files:
             self.file_list = self.input_files
             self.current_file_index = 0
@@ -879,8 +889,8 @@ class MainWindow(QMainWindow):
         if self.current_file_index < len(self.file_list):
             self.input_file = self.file_list[self.current_file_index]
             self.current_extension = self.input_file.suffix.lower()
-            # Ask user if they want to process this file (skip functionality)
-            if len(self.file_list) > 1:
+            # Ask user if they want to process this file (skip functionality) if prompting is enabled.
+            if self.prompt_on_each_file and len(self.file_list) > 1:
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Process File?")
                 msg_box.setText(f"Do you want to process {self.input_file.name}?")
