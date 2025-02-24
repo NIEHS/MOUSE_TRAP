@@ -68,7 +68,8 @@ class ConversionThread(QThread):
             if self.conversion_type == 'seq_to_mp4':
                 success, msg = self.seq_to_mp4()
             elif self.conversion_type == 'seq_to_avi':
-                success, msg = self.seq_to_avi()
+                # Use the faster ffmpeg-based conversion for .seq to .avi.
+                success, msg = video_to_avi(self.input_file, self.output_file)
             elif self.conversion_type == 'video_to_avi':
                 success, msg = video_to_avi(self.input_file, self.output_file)
             elif self.conversion_type == 'video_to_video':
@@ -123,45 +124,9 @@ class ConversionThread(QThread):
         out.release()
         return True, f"Converted .seq to .mp4: {self.output_file}"
 
+    # The seq_to_avi method has been replaced to use the faster ffmpeg-based conversion.
     def seq_to_avi(self):
-        cap = cv2.VideoCapture(str(self.input_file))
-        if not cap.isOpened():
-            return False, f"Could not open {self.input_file} as .seq."
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        if fps <= 0:
-            fps = 25
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        out = cv2.VideoWriter(str(self.output_file), fourcc, fps, (width, height))
-
-        # Try to get total frame count from metadata
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames <= 0:
-            # Manually count frames if metadata is unavailable
-            total_frames = 0
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                total_frames += 1
-            cap.release()
-            # Reopen the capture to start conversion from the beginning
-            cap = cv2.VideoCapture(str(self.input_file))
-
-        frame_count = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            out.write(frame)
-            frame_count += 1
-            progress_percent = int((frame_count / total_frames) * 100)
-            self.progress_signal.emit(progress_percent)
-        cap.release()
-        out.release()
-        self.progress_signal.emit(100)
-        return True, f"Converted .seq to .avi: {self.output_file}"
+        return video_to_avi(self.input_file, self.output_file)
 
     def ffmpeg_video_convert(self):
         process = QProcess()
@@ -392,7 +357,7 @@ class VideoAnnotationDialog(QDialog):
 
         btnLayout = QHBoxLayout()
         self.importCSVButton = QPushButton("Import CSV", self)
-        self.importCSVButton.clicked.connect(self.import_csv_annotations)
+        self.importCSVButton.clicked.connect(self.import_csv_annotations_multi)
         self.clearAnnotationsButton = QPushButton("Clear Annotations", self)
         self.clearAnnotationsButton.clicked.connect(self.clear_annotations)
         btnLayout.addWidget(self.importCSVButton)
@@ -478,39 +443,53 @@ class VideoAnnotationDialog(QDialog):
                 return True
         return super().eventFilter(source, event)
 
-    def import_csv_annotations(self):
-        fileName, _ = QFileDialog.getOpenFileName(self, "Import CSV Annotations", "", "CSV Files (*.csv)")
+    def import_csv_annotations_multi(self):
+        fileName, _ = QFileDialog.getOpenFileName(
+            self, "Import CSV Annotations for Multiple Files", "", "CSV Files (*.csv)"
+        )
         if not fileName:
             return
+        mapping = {}
         try:
-            with open(fileName, newline='') as csvfile:
+            # Use 'utf-8-sig' to remove any BOM characters.
+            with open(fileName, newline='', encoding='utf-8-sig') as csvfile:
                 reader = csv.DictReader(csvfile)
-                expected_headers = ["intruder", "enter", "exit"]
-                missing = [h for h in expected_headers if h not in reader.fieldnames]
-                if missing:
-                    QMessageBox.critical(self, "CSV Error", f"Missing header(s): {', '.join(missing)}")
+                headers = reader.fieldnames
+                # Check if 'file_name' is in headers after stripping whitespace.
+                if headers is None or "file_name" not in [h.strip() for h in headers]:
+                    QMessageBox.critical(
+                        self, 
+                        "CSV Error", 
+                        f"CSV must include a 'file_name' column. Found headers: {headers}"
+                    )
                     return
-                csv_annotations = {}
                 for row in reader:
-                    intruder = row["intruder"]
-                    enter = int(row["enter"])
-                    exit_frame = int(row["exit"])
-                    csv_annotations[intruder] = {"enter": enter, "exit": exit_frame}
+                    fname = row.get("file_name", "").strip()
+                    if not fname:
+                        continue
+                    annotations = {}
+                    for key, value in row.items():
+                        key_clean = key.strip()
+                        if key_clean == "file_name":
+                            continue
+                        if value.strip() == "":
+                            continue
+                        if key_clean.endswith("_in"):
+                            intruder = key_clean[:-3]  # Remove '_in'
+                            if intruder not in annotations:
+                                annotations[intruder] = {}
+                            annotations[intruder]["enter"] = int(value)
+                        elif key_clean.endswith("_out"):
+                            intruder = key_clean[:-4]
+                            if intruder not in annotations:
+                                annotations[intruder] = {}
+                            annotations[intruder]["exit"] = int(value)
+                    mapping[fname] = annotations
         except Exception as e:
             QMessageBox.critical(self, "CSV Error", f"Error reading CSV: {str(e)}")
             return
-
-        reply = QMessageBox.question(
-            self,
-            "Merge or Replace",
-            "Do you want to merge with existing annotations? (Selecting No will replace them)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.No:
-            self.annotations = {}
-        self.annotations.update(csv_annotations)
-        self.refresh_annotation_table()
-        QMessageBox.information(self, "CSV Imported", "CSV annotations imported successfully.")
+        self.csv_annotations_mapping = mapping
+        QMessageBox.information(self, "CSV Imported", "CSV annotations mapping imported successfully.")
 
     def clear_annotations(self):
         self.annotations = {}
@@ -697,6 +676,10 @@ class MainWindow(QMainWindow):
         self.select_file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_label)
         file_layout.addWidget(self.select_file_button)
+        # New button for selecting input folder with type filtering
+        self.select_folder_button = QPushButton("Select Input Folder")
+        self.select_folder_button.clicked.connect(self.select_folder_and_filter)
+        file_layout.addWidget(self.select_folder_button)
         bottom_layout.addLayout(file_layout)
 
         options_group_layout = QVBoxLayout()
@@ -716,13 +699,10 @@ class MainWindow(QMainWindow):
         annotation_layout = QHBoxLayout()
         self.clip_checkbox = QCheckBox("Clip using Annotation")
         annotation_layout.addWidget(self.clip_checkbox)
-        self.select_annotation_file_button = QPushButton("Select Annotation File")
-        self.select_annotation_file_button.setEnabled(False)
-        self.select_annotation_file_button.clicked.connect(self.select_annotation_file)
+        self.select_annotation_file_button = QPushButton("Import CSV Annotations")
+        self.select_annotation_file_button.clicked.connect(self.import_csv_annotations_multi)
         self.select_annotation_file_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
         annotation_layout.addWidget(self.select_annotation_file_button)
-        self.annotation_file_label = QLabel("No annotation file selected")
-        annotation_layout.addWidget(self.annotation_file_label)
         annotation_layout.addStretch()
         options_group_layout.addLayout(annotation_layout)
 
@@ -755,6 +735,7 @@ class MainWindow(QMainWindow):
         self.current_file_index = 0
         self.annotation_file = None
         self.temp_avi_file = None
+        self.csv_annotations_mapping = {}  # For multi-file CSV annotations
 
         self.OUTPUT_FORMATS = {
             ".seq":  [".mp4", ".avi"],
@@ -803,6 +784,22 @@ class MainWindow(QMainWindow):
                 self.current_extension = self.input_file.suffix.lower()
                 self.update_output_options()
 
+    def select_folder_and_filter(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Input Folder")
+        if folder:
+            file_type, ok = QInputDialog.getText(self, "File Type Filter", "Enter file extension (e.g., .seq or .avi):")
+            if ok and file_type:
+                folder_path = Path(folder)
+                filtered_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == file_type.lower()]
+                if filtered_files:
+                    self.input_files = filtered_files
+                    self.file_label.setText(f"{len(filtered_files)} files selected with type {file_type}")
+                    self.input_file = filtered_files[0]
+                    self.current_extension = self.input_file.suffix.lower()
+                    self.update_output_options()
+                else:
+                    QMessageBox.information(self, "No Files", f"No files with extension {file_type} found in the selected folder.")
+
     def update_output_options(self):
         self.output_combo.clear()
         if self.current_extension in self.OUTPUT_FORMATS:
@@ -816,6 +813,54 @@ class MainWindow(QMainWindow):
         if file_path:
             self.annotation_file = Path(file_path)
             self.annotation_file_label.setText(self.annotation_file.name)
+
+    def import_csv_annotations_multi(self):
+        fileName, _ = QFileDialog.getOpenFileName(
+            self, "Import CSV Annotations for Multiple Files", "", "CSV Files (*.csv)"
+        )
+        if not fileName:
+            return
+        mapping = {}
+        try:
+            # Use 'utf-8-sig' to remove any BOM characters.
+            with open(fileName, newline='', encoding='utf-8-sig') as csvfile:
+                reader = csv.DictReader(csvfile)
+                headers = reader.fieldnames
+                # Check if 'file_name' is in headers after stripping whitespace.
+                if headers is None or "file_name" not in [h.strip() for h in headers]:
+                    QMessageBox.critical(
+                        self, 
+                        "CSV Error", 
+                        f"CSV must include a 'file_name' column. Found headers: {headers}"
+                    )
+                    return
+                for row in reader:
+                    fname = row.get("file_name", "").strip()
+                    if not fname:
+                        continue
+                    annotations = {}
+                    for key, value in row.items():
+                        key_clean = key.strip()
+                        if key_clean == "file_name":
+                            continue
+                        if value.strip() == "":
+                            continue
+                        if key_clean.endswith("_in"):
+                            intruder = key_clean[:-3]  # Remove '_in'
+                            if intruder not in annotations:
+                                annotations[intruder] = {}
+                            annotations[intruder]["enter"] = int(value)
+                        elif key_clean.endswith("_out"):
+                            intruder = key_clean[:-4]  # Remove '_out'
+                            if intruder not in annotations:
+                                annotations[intruder] = {}
+                            annotations[intruder]["exit"] = int(value)
+                    mapping[fname] = annotations
+        except Exception as e:
+            QMessageBox.critical(self, "CSV Error", f"Error reading CSV: {str(e)}")
+            return
+        self.csv_annotations_mapping = mapping
+        QMessageBox.information(self, "CSV Imported", "CSV annotations mapping imported successfully.")
 
     def start_conversion(self):
         if self.multiple_files_checkbox.isChecked() and self.input_files:
@@ -834,6 +879,27 @@ class MainWindow(QMainWindow):
         if self.current_file_index < len(self.file_list):
             self.input_file = self.file_list[self.current_file_index]
             self.current_extension = self.input_file.suffix.lower()
+            # Ask user if they want to process this file (skip functionality)
+            if len(self.file_list) > 1:
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Process File?")
+                msg_box.setText(f"Do you want to process {self.input_file.name}?")
+                yes_button = msg_box.addButton("Yes", QMessageBox.ButtonRole.YesRole)
+                no_button = msg_box.addButton("No", QMessageBox.ButtonRole.NoRole)
+                exit_button = msg_box.addButton("Exit", QMessageBox.ButtonRole.RejectRole)
+                msg_box.exec()
+                clicked = msg_box.clickedButton()
+                if clicked == no_button:
+                    self.current_file_index += 1
+                    self.progress_bar.setValue(0)
+                    self.process_next_file()
+                    return
+                elif clicked == exit_button:
+                    QMessageBox.information(self, "Conversion Cancelled", "Conversion process cancelled by user.")
+                    self.convert_button.setEnabled(True)
+                    self.select_file_button.setEnabled(True)
+                    return
+
             output_ext = self.output_combo.currentText()
             if self.output_folder and self.output_folder_checkbox.isChecked():
                 self.output_file = Path(self.output_folder) / (self.input_file.stem + output_ext)
@@ -870,7 +936,11 @@ class MainWindow(QMainWindow):
                 else:
                     self.temp_avi_file = self.input_file
 
+                # Create the annotation dialog and pre-load CSV annotations if available
                 annot_dialog = VideoAnnotationDialog(self.temp_avi_file)
+                key = self.input_file.stem
+                if self.csv_annotations_mapping and key in self.csv_annotations_mapping:
+                    annot_dialog.annotations.update(self.csv_annotations_mapping[key])
                 if annot_dialog.exec() == QDialog.DialogCode.Accepted:
                     annotations = annot_dialog.annotations
                     success, message = self.clip_by_annotations(annotations, self.temp_avi_file)
@@ -994,7 +1064,6 @@ class MainWindow(QMainWindow):
             out_writer = cv2.VideoWriter(str(out_path), fourcc, fps, (width, height))
             cap.set(cv2.CAP_PROP_POS_FRAMES, enter_frame - 1)
             while True:
-                # Get the next frame index (0-indexed)
                 current_idx = cap.get(cv2.CAP_PROP_POS_FRAMES)
                 if current_idx >= exit_frame:
                     break
