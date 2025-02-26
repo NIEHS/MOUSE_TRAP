@@ -697,7 +697,8 @@ class MainWindow(QMainWindow):
         self.output_folder_checkbox.stateChanged.connect(self.toggle_output_folder_button)
 
         annotation_layout = QHBoxLayout()
-        self.clip_checkbox = QCheckBox("Clip using Annotation")
+        # Changed the checkbox text from "Clip using Annotation" to "Clip"
+        self.clip_checkbox = QCheckBox("Clip")
         annotation_layout.addWidget(self.clip_checkbox)
         self.select_annotation_file_button = QPushButton("Import CSV Annotations")
         self.select_annotation_file_button.clicked.connect(self.import_csv_annotations_multi)
@@ -917,11 +918,12 @@ class MainWindow(QMainWindow):
                 self.output_file = self.input_file.with_suffix(output_ext)
 
             if self.clip_checkbox.isChecked():
-                if self.current_extension not in [".seq", ".mp4"]:
+                # Update supported extensions: now supports .seq, .mp4, and .avi
+                if self.current_extension not in [".seq", ".mp4", ".avi"]:
                     QMessageBox.critical(
                         self,
                         "Error",
-                        "Clipped output is only supported for .seq or .mp4 input in this example."
+                        "Clipped output is only supported for .seq, .mp4, or .avi input in this example."
                     )
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
@@ -935,7 +937,8 @@ class MainWindow(QMainWindow):
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
-                if self.current_extension == ".seq":
+                # For .seq and .mp4, convert to a temporary AVI file.
+                if self.current_extension in [".seq", ".mp4"]:
                     self.temp_avi_file = self.input_file.parent / (self.input_file.stem + "_temp.avi")
                     success, message = video_to_avi(self.input_file, self.temp_avi_file)
                     if not success:
@@ -943,7 +946,7 @@ class MainWindow(QMainWindow):
                         self.convert_button.setEnabled(True)
                         self.select_file_button.setEnabled(True)
                         return
-                else:
+                elif self.current_extension == ".avi":
                     self.temp_avi_file = self.input_file
 
                 # Create the annotation dialog and pre-load CSV annotations if available
@@ -962,7 +965,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Annotation", "Annotation cancelled.")
 
                 try:
-                    if self.current_extension == ".seq" and self.temp_avi_file.exists():
+                    if self.current_extension in [".seq", ".mp4"] and self.temp_avi_file.exists():
                         os.remove(self.temp_avi_file)
                 except Exception:
                     pass
