@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QAbstractItemView, QSplitter, QMenu
 )
 from PyQt6.QtGui import QPixmap, QImage, QPalette, QColor
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QUrl, QTimer, QEvent
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QUrl, QTimer, QEvent, QProcess
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
@@ -25,10 +25,6 @@ from PyQt6.QtMultimediaWidgets import QVideoWidget
 # Helper Function for Video Conversion (seq or mp4 to AVI)
 # -----------------------------------------------------------------------------
 def video_to_avi(input_path, avi_path):
-    """
-    Convert the input video (.seq or .mp4) to an AVI file using ffmpeg with the MJPEG codec.
-    Forces AVI container, pixel format yuvj420p, 25 fps, and MJPG tag.
-    """
     cmd = [
         'ffmpeg',
         '-i', str(input_path),
@@ -40,13 +36,17 @@ def video_to_avi(input_path, avi_path):
         '-y',
         str(avi_path)
     ]
-    process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if process.returncode != 0:
-        return False, f"FFmpeg error: {process.stderr.decode('utf-8')}"
-    time.sleep(1)
-    if not avi_path.exists() or avi_path.stat().st_size < 1000:
+    process = QProcess()
+    process.start(cmd[0], cmd[1:])
+    process.waitForFinished(-1)
+    if process.exitCode() != 0:
+        error_output = process.readAllStandardError().data().decode()
+        return False, f"FFmpeg error: {error_output}"
+    
+    if not Path(avi_path).exists() or Path(avi_path).stat().st_size < 1000:
         return False, f"Output AVI file {avi_path} seems empty or invalid."
     return True, f"Converted {input_path} to temporary AVI: {avi_path}"
+
 
 # -----------------------------------------------------------------------------
 # Conversion Thread for Non-Clipping Conversions
