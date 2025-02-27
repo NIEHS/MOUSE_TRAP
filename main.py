@@ -704,6 +704,10 @@ class MainWindow(QMainWindow):
         self.select_annotation_file_button.clicked.connect(self.import_csv_annotations_multi)
         self.select_annotation_file_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
         annotation_layout.addWidget(self.select_annotation_file_button)
+        self.sleap_button = QPushButton("Launch SLEAP")
+        self.sleap_button.clicked.connect(self.launch_sleap)
+        self.sleap_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
+        annotation_layout.addWidget(self.sleap_button)
         annotation_layout.addStretch()
         options_group_layout.addLayout(annotation_layout)
 
@@ -1090,6 +1094,38 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event):
         super().keyPressEvent(event)
+
+    def launch_sleap(self):
+        try:
+            # Try to locate the conda executable
+            conda_executable = os.path.expanduser("~/opt/anaconda3/bin/conda")
+            if not os.path.exists(conda_executable):
+                conda_executable = os.path.expanduser("~/miniconda3/bin/conda")
+            if not os.path.exists(conda_executable):
+                conda_executable = "conda"  # Try using conda from PATH
+            
+            # Create a QProcess to run the SLEAP command with conda activation
+            process = QProcess(self)  # Parent it to prevent garbage collection
+            
+            # Connect signals to track process output for debugging
+            process.readyReadStandardError.connect(
+                lambda: print("SLEAP error:", process.readAllStandardError().data().decode())
+            )
+            
+            # Use conda run instead of conda activate for more reliable execution
+            process.setProgram(conda_executable)
+            process.setArguments(["run", "-n", "sleap", "sleap-label"])
+            
+            process.start()
+            
+            if not process.waitForStarted(3000):
+                QMessageBox.critical(self, "Error", "Failed to start SLEAP. Make sure conda and SLEAP are properly installed.")
+                return
+                
+            self.sleap_process = process
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error launching SLEAP: {str(e)}")
 
 # -----------------------------------------------------------------------------
 # Main Function
