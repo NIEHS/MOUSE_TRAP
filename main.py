@@ -1047,7 +1047,7 @@ class MainWindow(QMainWindow):
             if "enter" not in data or "exit" not in data:
                 return False, f"Incomplete annotation for intruder '{intruder}'."
             enter_frame = data["enter"]
-            exit_frame = data["exit"] - 1
+            exit_frame = data["exit"]
             if exit_frame < enter_frame:
                 return False, f"Exit frame occurs before enter frame for intruder '{intruder}'."
             intervals.append((enter_frame, exit_frame, intruder))
