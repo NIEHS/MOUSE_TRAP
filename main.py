@@ -628,7 +628,6 @@ class VideoAnnotationDialog(QDialog):
             self.cap_preview.release()
         event.accept()
 
-    # Standard window decorations now provide a full screen/maximize button.
     def toggle_full_screen(self):
         if self.windowState() & Qt.WindowState.WindowFullScreen:
             self.setWindowState(Qt.WindowState.WindowNoState)
@@ -676,7 +675,6 @@ class MainWindow(QMainWindow):
         self.select_file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_label)
         file_layout.addWidget(self.select_file_button)
-        # New button for selecting input folder with type filtering
         self.select_folder_button = QPushButton("Select Input Folder")
         self.select_folder_button.clicked.connect(self.select_folder_and_filter)
         file_layout.addWidget(self.select_folder_button)
