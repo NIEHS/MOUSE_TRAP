@@ -60,7 +60,7 @@ class ConversionThread(QThread):
         self.input_file = Path(input_file)
         self.output_file = Path(output_file)
         self.conversion_type = conversion_type
-        self.total_duration_ms = None  # Only used for ffmpeg conversions if needed
+        self.total_duration_ms = None
 
     def run(self):
         try:
@@ -68,7 +68,7 @@ class ConversionThread(QThread):
             if self.conversion_type == 'seq_to_mp4':
                 success, msg = self.seq_to_mp4()
             elif self.conversion_type == 'seq_to_avi':
-                # Use the faster ffmpeg-based conversion for .seq to .avi.
+                # ffmpeg-based conversion for .seq to .avi.
                 success, msg = video_to_avi(self.input_file, self.output_file)
             elif self.conversion_type == 'video_to_avi':
                 success, msg = video_to_avi(self.input_file, self.output_file)
@@ -695,6 +695,7 @@ class MainWindow(QMainWindow):
         self.output_folder_checkbox.stateChanged.connect(self.toggle_output_folder_button)
 
         annotation_layout = QHBoxLayout()
+
         # Changed the checkbox text from "Clip using Annotation" to "Clip"
         self.clip_checkbox = QCheckBox("Clip")
         annotation_layout.addWidget(self.clip_checkbox)
@@ -920,7 +921,6 @@ class MainWindow(QMainWindow):
                 self.output_file = self.input_file.with_suffix(output_ext)
 
             if self.clip_checkbox.isChecked():
-                # Update supported extensions: now supports .seq, .mp4, and .avi
                 if self.current_extension not in [".seq", ".mp4", ".avi"]:
                     QMessageBox.critical(
                         self,
