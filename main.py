@@ -9,6 +9,7 @@ from pdf2image import convert_from_path
 import pypandoc
 from docx2pdf import convert as docx2pdf_convert
 import csv
+import platform, shutil, subprocess
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QPushButton, QLabel, QVBoxLayout,
@@ -1095,33 +1096,69 @@ class MainWindow(QMainWindow):
 
     def launch_sleap(self):
         try:
-            # Try to locate the conda executable
             conda_executable = os.path.expanduser("~/opt/anaconda3/bin/conda")
             if not os.path.exists(conda_executable):
                 conda_executable = os.path.expanduser("~/miniconda3/bin/conda")
             if not os.path.exists(conda_executable):
-                conda_executable = "conda"  # Try using conda from PATH
-            
-            # Create a QProcess to run the SLEAP command with conda activation
-            process = QProcess(self)  # Parent it to prevent garbage collection
-            
-            # Connect signals to track process output for debugging
+                # cross-platform PATH lookup (works on Windows too)
+                conda_executable = shutil.which("conda") or "conda"
+
+            process = QProcess(self)  # keep parent to avoid GC
+
+            # debug output
             process.readyReadStandardError.connect(
-                lambda: print("SLEAP error:", process.readAllStandardError().data().decode())
+                lambda: print("SLEAP error:", process.readAllStandardError().data().decode(errors="ignore"))
             )
-            
-            # Use conda run instead of conda activate for more reliable execution
-            process.setProgram(conda_executable)
-            process.setArguments(["run", "-n", "sleap", "sleap-label"])
-            
-            process.start()
-            
-            if not process.waitForStarted(3000):
-                QMessageBox.critical(self, "Error", "Failed to start SLEAP. Make sure conda and SLEAP are properly installed.")
-                return
-                
+            process.readyReadStandardOutput.connect(
+                lambda: print("SLEAP out:", process.readAllStandardOutput().data().decode(errors="ignore"))
+            )
+
+            if platform.system() == "Windows":
+                # native conda.exe (avoids cmd.exe quoting headaches)
+                if not conda_executable or conda_executable.lower().endswith(".bat") or conda_executable.lower() == "conda":
+                    # find conda.exe in common locations
+                    for p in [
+                        os.path.expandvars(r"%ProgramData%\anaconda3\Scripts\conda.exe"),
+                        os.path.expandvars(r"%ProgramData%\miniconda3\Scripts\conda.exe"),
+                        os.path.expandvars(r"%USERPROFILE%\anaconda3\Scripts\conda.exe"),
+                        os.path.expandvars(r"%USERPROFILE%\miniconda3\Scripts\conda.exe"),
+                    ]:
+                        if os.path.exists(p):
+                            conda_executable = p
+                            break
+
+                if conda_executable.lower().endswith(".exe"):
+                    # launch conda directly
+                    process.setProgram(conda_executable)
+                    process.setArguments(["run", "-n", "sleap", "sleap-label"])
+                else:
+                    # fall back to .bat via cmd.exe. IMPORTANT: no embedded quotes.
+                    process.setProgram("cmd.exe")
+                    process.setArguments(["/C", "call", conda_executable, "run", "-n", "sleap", "sleap-label"])
+
+                # start in home
+                process.setWorkingDirectory(os.path.expanduser("~"))
+                process.start()
+
+                # conda can be slow to spawn on Windows
+                if not process.waitForStarted(15000):
+                    QMessageBox.critical(self, "Error",
+                        "Failed to start SLEAP. Ensure the 'sleap' env exists and SLEAP is installed.")
+                    return
+
+            else:
+                # macOS/Linux: your original approach
+                process.setProgram(conda_executable)
+                process.setArguments(["run", "-n", "sleap", "sleap-label"])
+                process.start()
+
+                if not process.waitForStarted(10000):
+                    QMessageBox.critical(self, "Error",
+                        "Failed to start SLEAP. Make sure conda and SLEAP are properly installed.")
+                    return
+
             self.sleap_process = process
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error launching SLEAP: {str(e)}")
 
