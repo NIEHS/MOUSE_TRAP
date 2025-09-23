@@ -1,66 +1,41 @@
-import csv
-import os
-import platform
-import shutil
-import subprocess
 import sys
+import os
+import subprocess
+import time
 from pathlib import Path
-
 import cv2
+from PIL import Image
+from pdf2image import convert_from_path
 import pypandoc
 from docx2pdf import convert as docx2pdf_convert
-from pdf2image import convert_from_path
-from PIL import Image
-from PyQt6.QtCore import QEvent, QProcess, Qt, QThread, QTimer, QUrl, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QImage, QPalette, QPixmap
-from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtWidgets import (
-    QAbstractItemView,
-    QApplication,
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QFileDialog,
-    QGroupBox,
-    QHBoxLayout,
-    QInputDialog,
-    QLabel,
-    QMainWindow,
-    QMenu,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QSlider,
-    QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+import csv
 
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QPushButton, QLabel, QVBoxLayout,
+    QHBoxLayout, QComboBox, QFileDialog, QProgressBar, QMessageBox,
+    QSizePolicy, QCheckBox, QInputDialog, QDialog, QSlider, QGroupBox,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QSplitter, QMenu,
+    QListView, QTreeView
+)
+from PyQt6.QtGui import QPixmap, QImage, QPalette, QColor
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QUrl, QTimer, QEvent, QProcess
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimediaWidgets import QVideoWidget
 
 # -----------------------------------------------------------------------------
 # Helper Function for Video Conversion (seq or mp4 to AVI)
 # -----------------------------------------------------------------------------
 def video_to_avi(input_path, avi_path):
     cmd = [
-        "ffmpeg",
-        "-i",
-        str(input_path),
-        "-c:v",
-        "mjpeg",
-        "-qscale:v",
-        "2",
-        "-pix_fmt",
-        "yuvj420p",
-        "-vtag",
-        "MJPG",
-        "-r",
-        "25",
-        "-y",
-        str(avi_path),
+        'ffmpeg',
+        '-i', str(input_path),
+        '-c:v', 'mjpeg',
+        '-qscale:v', '2',
+        '-pix_fmt', 'yuvj420p',
+        '-vtag', 'MJPG',
+        '-r', '25',
+        '-y',
+        str(avi_path)
     ]
     process = QProcess()
     process.start(cmd[0], cmd[1:])
@@ -68,7 +43,7 @@ def video_to_avi(input_path, avi_path):
     if process.exitCode() != 0:
         error_output = process.readAllStandardError().data().decode()
         return False, f"FFmpeg error: {error_output}"
-
+    
     if not Path(avi_path).exists() or Path(avi_path).stat().st_size < 1000:
         return False, f"Output AVI file {avi_path} seems empty or invalid."
     return True, f"Converted {input_path} to temporary AVI: {avi_path}"
@@ -86,37 +61,37 @@ class ConversionThread(QThread):
         self.input_file = Path(input_file)
         self.output_file = Path(output_file)
         self.conversion_type = conversion_type
-        self.total_duration_ms = None
+        self.total_duration_ms = None  # Only used for ffmpeg conversions if needed
 
     def run(self):
         try:
             success, msg = False, "Unknown conversion"
-            if self.conversion_type == "seq_to_mp4":
+            if self.conversion_type == 'seq_to_mp4':
                 success, msg = self.seq_to_mp4()
-            elif self.conversion_type == "seq_to_avi":
-                # ffmpeg-based conversion for .seq to .avi.
+            elif self.conversion_type == 'seq_to_avi':
+                # Use the faster ffmpeg-based conversion for .seq to .avi.
                 success, msg = video_to_avi(self.input_file, self.output_file)
-            elif self.conversion_type == "video_to_avi":
+            elif self.conversion_type == 'video_to_avi':
                 success, msg = video_to_avi(self.input_file, self.output_file)
-            elif self.conversion_type == "video_to_video":
+            elif self.conversion_type == 'video_to_video':
                 success, msg = self.ffmpeg_video_convert()
-            elif self.conversion_type == "image_to_image":
+            elif self.conversion_type == 'image_to_image':
                 success, msg = self.image_to_image()
-            elif self.conversion_type == "image_to_pdf":
+            elif self.conversion_type == 'image_to_pdf':
                 success, msg = self.image_to_pdf()
-            elif self.conversion_type == "pdf_to_image":
+            elif self.conversion_type == 'pdf_to_image':
                 success, msg = self.pdf_to_image()
-            elif self.conversion_type == "pdf_to_docx":
+            elif self.conversion_type == 'pdf_to_docx':
                 success, msg = self.pdf_to_docx()
-            elif self.conversion_type == "pdf_to_txt":
+            elif self.conversion_type == 'pdf_to_txt':
                 success, msg = self.pdf_to_txt()
-            elif self.conversion_type == "docx_to_pdf":
+            elif self.conversion_type == 'docx_to_pdf':
                 success, msg = self.docx_to_pdf()
-            elif self.conversion_type == "docx_to_txt":
+            elif self.conversion_type == 'docx_to_txt':
                 success, msg = self.docx_to_txt()
-            elif self.conversion_type == "txt_to_pdf":
+            elif self.conversion_type == 'txt_to_pdf':
                 success, msg = self.txt_to_pdf()
-            elif self.conversion_type == "txt_to_docx":
+            elif self.conversion_type == 'txt_to_docx':
                 success, msg = self.txt_to_docx()
             else:
                 success, msg = self.generic_conversion()
@@ -133,7 +108,7 @@ class ConversionThread(QThread):
             fps = 25
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(str(self.output_file), fourcc, fps, (width, height))
         frame_count = 0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
@@ -158,12 +133,10 @@ class ConversionThread(QThread):
         process = QProcess()
         cmd = [
             "ffmpeg",
-            "-i",
-            str(self.input_file),
-            "-progress",
-            "pipe:1",
+            "-i", str(self.input_file),
+            "-progress", "pipe:1",
             "-y",
-            str(self.output_file),
+            str(self.output_file)
         ]
         process.setProgram(cmd[0])
         process.setArguments(cmd[1:])
@@ -184,7 +157,7 @@ class ConversionThread(QThread):
                     if self.total_duration_ms:
                         percent = int((out_time_ms / self.total_duration_ms) * 100)
                         self.progress_signal.emit(percent)
-                except Exception:
+                except Exception as e:
                     pass
 
     def image_to_image(self):
@@ -226,9 +199,7 @@ class ConversionThread(QThread):
 
     def pdf_to_docx(self):
         try:
-            output = pypandoc.convert_file(
-                str(self.input_file), "docx", outputfile=str(self.output_file)
-            )
+            output = pypandoc.convert_file(str(self.input_file), 'docx', outputfile=str(self.output_file))
             if output:
                 return False, f"pypandoc error: {output}"
             return True, f"PDF->DOCX conversion to {self.output_file} completed."
@@ -237,9 +208,7 @@ class ConversionThread(QThread):
 
     def pdf_to_txt(self):
         try:
-            output = pypandoc.convert_file(
-                str(self.input_file), "plain", outputfile=str(self.output_file)
-            )
+            output = pypandoc.convert_file(str(self.input_file), 'plain', outputfile=str(self.output_file))
             if output:
                 return False, f"pypandoc error: {output}"
             return True, f"PDF->TXT conversion to {self.output_file} completed."
@@ -255,9 +224,7 @@ class ConversionThread(QThread):
 
     def docx_to_txt(self):
         try:
-            output = pypandoc.convert_file(
-                str(self.input_file), "plain", outputfile=str(self.output_file)
-            )
+            output = pypandoc.convert_file(str(self.input_file), 'plain', outputfile=str(self.output_file))
             if output:
                 return False, f"pypandoc error: {output}"
             return True, f"DOCX->TXT conversion to {self.output_file} completed."
@@ -266,9 +233,7 @@ class ConversionThread(QThread):
 
     def txt_to_pdf(self):
         try:
-            output = pypandoc.convert_file(
-                str(self.input_file), "pdf", outputfile=str(self.output_file)
-            )
+            output = pypandoc.convert_file(str(self.input_file), 'pdf', outputfile=str(self.output_file))
             if output:
                 return False, f"pypandoc error: {output}"
             return True, f"TXT->PDF conversion to {self.output_file} completed."
@@ -277,9 +242,7 @@ class ConversionThread(QThread):
 
     def txt_to_docx(self):
         try:
-            output = pypandoc.convert_file(
-                str(self.input_file), "docx", outputfile=str(self.output_file)
-            )
+            output = pypandoc.convert_file(str(self.input_file), 'docx', outputfile=str(self.output_file))
             if output:
                 return False, f"pypandoc error: {output}"
             return True, f"TXT->DOCX conversion to {self.output_file} completed."
@@ -287,13 +250,17 @@ class ConversionThread(QThread):
             return False, f"TXT->DOCX failed: {str(e)}"
 
     def generic_conversion(self):
-        cmd = ["ffmpeg", "-i", str(self.input_file), "-y", str(self.output_file)]
+        cmd = [
+            'ffmpeg',
+            '-i', str(self.input_file),
+            '-y',
+            str(self.output_file)
+        ]
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, stderr = process.communicate()
         if process.returncode != 0:
             return False, f"FFmpeg error: {stderr.decode('utf-8')}"
         return True, f"Generic conversion to {self.output_file} completed."
-
 
 # -----------------------------------------------------------------------------
 # Integrated Video Annotation Dialog (using Qt Multimedia)
@@ -306,21 +273,21 @@ class VideoAnnotationDialog(QDialog):
         self.setWindowTitle("Video Annotation")
         self.video_path = str(video_path)
         self.annotations = {}  # { intruderName: {"enter": frame, "exit": frame} }
-
+        
         cap = cv2.VideoCapture(self.video_path)
         self.fps = cap.get(cv2.CAP_PROP_FPS)
         if self.fps <= 0:
             self.fps = 25
         self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
-
+        
         self.cap_preview = cv2.VideoCapture(self.video_path)
         self.singleClickTimer = QTimer(self)
         self.singleClickTimer.setSingleShot(True)
         self.singleClickTimer.timeout.connect(self.perform_single_click)
         self.clicked_row = None
         self.clicked_column = None
-
+        
         self.init_video_section()
         self.init_annotation_panel()
         self.setup_splitter()
@@ -332,7 +299,7 @@ class VideoAnnotationDialog(QDialog):
         self.videoSection = QWidget(self)
         layout = QVBoxLayout(self.videoSection)
         layout.setContentsMargins(0, 0, 0, 0)
-
+        
         self.mediaPlayer = QMediaPlayer(self)
         self.audioOutput = QAudioOutput(self)
         self.mediaPlayer.setAudioOutput(self.audioOutput)
@@ -486,15 +453,15 @@ class VideoAnnotationDialog(QDialog):
         mapping = {}
         try:
             # Use 'utf-8-sig' to remove any BOM characters.
-            with open(fileName, newline="", encoding="utf-8-sig") as csvfile:
+            with open(fileName, newline='', encoding='utf-8-sig') as csvfile:
                 reader = csv.DictReader(csvfile)
                 headers = reader.fieldnames
                 # Check if 'file_name' is in headers after stripping whitespace.
                 if headers is None or "file_name" not in [h.strip() for h in headers]:
                     QMessageBox.critical(
-                        self,
-                        "CSV Error",
-                        f"CSV must include a 'file_name' column. Found headers: {headers}",
+                        self, 
+                        "CSV Error", 
+                        f"CSV must include a 'file_name' column. Found headers: {headers}"
                     )
                     return
                 for row in reader:
@@ -523,9 +490,7 @@ class VideoAnnotationDialog(QDialog):
             QMessageBox.critical(self, "CSV Error", f"Error reading CSV: {str(e)}")
             return
         self.csv_annotations_mapping = mapping
-        QMessageBox.information(
-            self, "CSV Imported", "CSV annotations mapping imported successfully."
-        )
+        QMessageBox.information(self, "CSV Imported", "CSV annotations mapping imported successfully.")
 
     def clear_annotations(self):
         self.annotations = {}
@@ -594,21 +559,18 @@ class VideoAnnotationDialog(QDialog):
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             height, width, channel = frame_rgb.shape
             bytes_per_line = channel * width
-            qimg = QImage(
-                frame_rgb.data, width, height, bytes_per_line, QImage.Format.Format_RGB888
-            )
+            qimg = QImage(frame_rgb.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(qimg).scaled(
-                self.previewLabel.width(),
-                self.previewLabel.height(),
+                self.previewLabel.width(), self.previewLabel.height(),
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+                Qt.TransformationMode.SmoothTransformation
             )
             self.previewLabel.setPixmap(pixmap)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.update_preview()
-
+    
     def showEvent(self, event):
         super().showEvent(event)
         QTimer.singleShot(0, self.update_preview)
@@ -632,9 +594,7 @@ class VideoAnnotationDialog(QDialog):
     def mark_enter(self):
         current_position = self.mediaPlayer.position()
         frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
-        intruder_name, ok = QInputDialog.getText(
-            self, "Intruder Name", "Enter intruder name for entry:"
-        )
+        intruder_name, ok = QInputDialog.getText(self, "Intruder Name", "Enter intruder name for entry:")
         if ok and intruder_name:
             if intruder_name in self.annotations and "enter" in self.annotations[intruder_name]:
                 QMessageBox.warning(self, "Warning", f"Enter already marked for {intruder_name}.")
@@ -642,27 +602,18 @@ class VideoAnnotationDialog(QDialog):
                 if intruder_name not in self.annotations:
                     self.annotations[intruder_name] = {}
                 self.annotations[intruder_name]["enter"] = frame
-                QMessageBox.information(
-                    self, "Annotation", f"Marked enter for {intruder_name} at frame {frame}."
-                )
+                QMessageBox.information(self, "Annotation", f"Marked enter for {intruder_name} at frame {frame}.")
                 self.refresh_annotation_table()
 
     def mark_exit(self):
         current_position = self.mediaPlayer.position()
         frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
-        available = [
-            name
-            for name, data in self.annotations.items()
-            if "enter" in data and "exit" not in data
-        ]
+        available = [name for name, data in self.annotations.items() if "enter" in data and "exit" not in data]
         if available:
-            intruder_name, ok = QInputDialog.getItem(
-                self, "Select Intruder", "Select intruder for exit:", available, 0, False
-            )
+            intruder_name, ok = QInputDialog.getItem(self, "Select Intruder",
+                                                     "Select intruder for exit:", available, 0, False)
         else:
-            intruder_name, ok = QInputDialog.getText(
-                self, "Intruder Name", "Enter intruder name for exit:"
-            )
+            intruder_name, ok = QInputDialog.getText(self, "Intruder Name", "Enter intruder name for exit:")
         if ok and intruder_name:
             if intruder_name in self.annotations and "exit" in self.annotations[intruder_name]:
                 QMessageBox.warning(self, "Warning", f"Exit already marked for {intruder_name}.")
@@ -670,9 +621,7 @@ class VideoAnnotationDialog(QDialog):
                 if intruder_name not in self.annotations:
                     self.annotations[intruder_name] = {}
                 self.annotations[intruder_name]["exit"] = frame
-                QMessageBox.information(
-                    self, "Annotation", f"Marked exit for {intruder_name} at frame {frame}."
-                )
+                QMessageBox.information(self, "Annotation", f"Marked exit for {intruder_name} at frame {frame}.")
                 self.refresh_annotation_table()
 
     def closeEvent(self, event):
@@ -680,12 +629,12 @@ class VideoAnnotationDialog(QDialog):
             self.cap_preview.release()
         event.accept()
 
+    # Standard window decorations now provide a full screen/maximize button.
     def toggle_full_screen(self):
         if self.windowState() & Qt.WindowState.WindowFullScreen:
             self.setWindowState(Qt.WindowState.WindowNoState)
         else:
             self.setWindowState(Qt.WindowState.WindowFullScreen)
-
 
 # -----------------------------------------------------------------------------
 # MainWindow (File Converter & Video Annotator)
@@ -704,12 +653,10 @@ class MainWindow(QMainWindow):
         # Banner
         banner_layout = QHBoxLayout()
         self.logo_label = QLabel()
-        logo_path = os.path.join("media", "nih_logo.png")
+        logo_path = os.path.join('media', 'nih_logo.png')
         if os.path.exists(logo_path):
             pixmap = QPixmap(logo_path)
-            self.logo_label.setPixmap(
-                pixmap.scaledToHeight(50, Qt.TransformationMode.SmoothTransformation)
-            )
+            self.logo_label.setPixmap(pixmap.scaledToHeight(50, Qt.TransformationMode.SmoothTransformation))
         banner_layout.addWidget(self.logo_label)
         banner_label = QLabel("Multi-Format File Converter & Video Annotator")
         banner_label.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
@@ -730,9 +677,13 @@ class MainWindow(QMainWindow):
         self.select_file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_label)
         file_layout.addWidget(self.select_file_button)
+        # New button for selecting input folder with type filtering
         self.select_folder_button = QPushButton("Select Input Folder")
-        self.select_folder_button.clicked.connect(self.select_folder_and_filter)
+        self.select_folder_button.clicked.connect(self.select_folders_and_filter)
+        self.recursive_checkbox = QCheckBox("Include subfolders")
+        self.recursive_checkbox.setChecked(False)  # default: OFF
         file_layout.addWidget(self.select_folder_button)
+        file_layout.addWidget(self.recursive_checkbox)
         bottom_layout.addLayout(file_layout)
 
         options_group_layout = QVBoxLayout()
@@ -750,21 +701,16 @@ class MainWindow(QMainWindow):
         self.output_folder_checkbox.stateChanged.connect(self.toggle_output_folder_button)
 
         annotation_layout = QHBoxLayout()
-
         # Changed the checkbox text from "Clip using Annotation" to "Clip"
         self.clip_checkbox = QCheckBox("Clip")
         annotation_layout.addWidget(self.clip_checkbox)
         self.select_annotation_file_button = QPushButton("Import CSV Annotations")
         self.select_annotation_file_button.clicked.connect(self.import_csv_annotations_multi)
-        self.select_annotation_file_button.setSizePolicy(
-            QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        )
+        self.select_annotation_file_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
         annotation_layout.addWidget(self.select_annotation_file_button)
         self.sleap_button = QPushButton("Launch SLEAP")
         self.sleap_button.clicked.connect(self.launch_sleap)
-        self.sleap_button.setSizePolicy(
-            QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        )
+        self.sleap_button.setSizePolicy(QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
         annotation_layout.addWidget(self.sleap_button)
         annotation_layout.addStretch()
         options_group_layout.addLayout(annotation_layout)
@@ -801,19 +747,19 @@ class MainWindow(QMainWindow):
         self.csv_annotations_mapping = {}  # For multi-file CSV annotations
 
         self.OUTPUT_FORMATS = {
-            ".seq": [".mp4", ".avi"],
-            ".avi": [".mp4", ".avi", ".mov", ".mkv", ".gif"],
-            ".mov": [".mp4", ".avi", ".mov", ".mkv", ".gif"],
-            ".mkv": [".mp4", ".avi", ".mov", ".mkv", ".gif"],
-            ".mp4": [".mp4", ".avi", ".mov", ".mkv", ".gif"],
-            ".jpg": [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
+            ".seq":  [".mp4", ".avi"],
+            ".avi":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
+            ".mov":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
+            ".mkv":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
+            ".mp4":  [".mp4", ".avi", ".mov", ".mkv", ".gif"],
+            ".jpg":  [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
             ".jpeg": [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
-            ".png": [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
+            ".png":  [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
             ".tiff": [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
-            ".bmp": [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
-            ".pdf": [".jpg", ".png", ".docx", ".txt"],
+            ".bmp":  [".jpg", ".png", ".tiff", ".bmp", ".pdf"],
+            ".pdf":  [".jpg", ".png", ".docx", ".txt"],
             ".docx": [".pdf", ".txt"],
-            ".txt": [".pdf", ".docx"],
+            ".txt":  [".pdf", ".docx"]
         }
         self.setStyleSheet("QMainWindow { background-color: #FFFFFF; }")
 
@@ -847,33 +793,74 @@ class MainWindow(QMainWindow):
                 self.current_extension = self.input_file.suffix.lower()
                 self.update_output_options()
 
-    def select_folder_and_filter(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Input Folder")
-        if folder:
-            file_type, ok = QInputDialog.getText(
-                self, "File Type Filter", "Enter file extension (e.g., .seq or .avi):"
+    def select_folders_and_filter(self):
+        # let the user pick multiple directories
+        dialog = QFileDialog(self, "Select Input Folders")
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+
+        # enable multi-selection on the internal views
+        for view in dialog.findChildren((QListView, QTreeView)):
+            view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+
+        if dialog.exec() != QFileDialog.DialogCode.Accepted:
+            return
+
+        folders = [Path(p) for p in dialog.selectedFiles() if p]
+        if not folders:
+            return
+
+        # Ask for the single extension to use
+        file_type, ok = QInputDialog.getText(
+            self, "File Type Filter", "Enter file extension (e.g., .seq or .avi):"
+        )
+        if not ok or not file_type:
+            return
+
+        ext = file_type.lower().strip()
+        if ext and not ext.startswith('.'):
+            ext = '.' + ext
+
+        # Use the checkbox if present; default to non-recursive
+        recursive = hasattr(self, "recursive_checkbox") and self.recursive_checkbox.isChecked()
+
+        filtered_files = []
+        for folder_path in folders:
+            if not (folder_path.exists() and folder_path.is_dir()):
+                continue
+
+            if recursive:
+                # recursive: walk subfolders
+                for f in folder_path.rglob('*'):
+                    if f.is_file() and f.suffix.lower() == ext:
+                        filtered_files.append(f)
+            else:
+                # non-recursive: only the top-level directory
+                for f in folder_path.iterdir():
+                    if f.is_file() and f.suffix.lower() == ext:
+                        filtered_files.append(f)
+
+        # de-dupe while preserving order (handles overlapping folder selections)
+        seen = set()
+        filtered_files = [f for f in filtered_files if not (f in seen or seen.add(f))]
+
+        if filtered_files:
+            self.input_files = filtered_files
+            self.file_label.setText(
+                f"{len(filtered_files)} files from {len(folders)} folder(s) "
+                f"selected with type {ext}" + (" (recursive)" if recursive else "")
             )
-            if ok and file_type:
-                folder_path = Path(folder)
-                filtered_files = [
-                    f
-                    for f in folder_path.iterdir()
-                    if f.is_file() and f.suffix.lower() == file_type.lower()
-                ]
-                if filtered_files:
-                    self.input_files = filtered_files
-                    self.file_label.setText(
-                        f"{len(filtered_files)} files selected with type {file_type}"
-                    )
-                    self.input_file = filtered_files[0]
-                    self.current_extension = self.input_file.suffix.lower()
-                    self.update_output_options()
-                else:
-                    QMessageBox.information(
-                        self,
-                        "No Files",
-                        f"No files with extension {file_type} found in the selected folder.",
-                    )
+            self.input_file = filtered_files[0]
+            self.current_extension = self.input_file.suffix.lower()
+            self.update_output_options()
+        else:
+            QMessageBox.information(
+                self, "No Files",
+                f"No files with extension {ext} found in the selected folder(s)"
+                + (" (recursive)." if recursive else ".")
+            )
+
 
     def update_output_options(self):
         self.output_combo.clear()
@@ -884,9 +871,7 @@ class MainWindow(QMainWindow):
 
     def select_annotation_file(self):
         file_dialog = QFileDialog()
-        file_path, _ = file_dialog.getOpenFileName(
-            self, "Select Annotation File", filter="Text Files (*.txt)"
-        )
+        file_path, _ = file_dialog.getOpenFileName(self, "Select Annotation File", filter="Text Files (*.txt)")
         if file_path:
             self.annotation_file = Path(file_path)
             self.annotation_file_label.setText(self.annotation_file.name)
@@ -900,15 +885,15 @@ class MainWindow(QMainWindow):
         mapping = {}
         try:
             # Use 'utf-8-sig' to remove any BOM characters.
-            with open(fileName, newline="", encoding="utf-8-sig") as csvfile:
+            with open(fileName, newline='', encoding='utf-8-sig') as csvfile:
                 reader = csv.DictReader(csvfile)
                 headers = reader.fieldnames
                 # Check if 'file_name' is in headers after stripping whitespace.
                 if headers is None or "file_name" not in [h.strip() for h in headers]:
                     QMessageBox.critical(
-                        self,
-                        "CSV Error",
-                        f"CSV must include a 'file_name' column. Found headers: {headers}",
+                        self, 
+                        "CSV Error", 
+                        f"CSV must include a 'file_name' column. Found headers: {headers}"
                     )
                     return
                 for row in reader:
@@ -937,9 +922,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "CSV Error", f"Error reading CSV: {str(e)}")
             return
         self.csv_annotations_mapping = mapping
-        QMessageBox.information(
-            self, "CSV Imported", "CSV annotations mapping imported successfully."
-        )
+        QMessageBox.information(self, "CSV Imported", "CSV annotations mapping imported successfully.")
 
     def start_conversion(self):
         # One-time prompt to decide if user wants to be prompted on every file.
@@ -948,10 +931,10 @@ class MainWindow(QMainWindow):
             "Prompt Setting",
             "Do you want to be prompted on every file?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+            QMessageBox.StandardButton.Yes
         )
-        self.prompt_on_each_file = reply == QMessageBox.StandardButton.Yes
-
+        self.prompt_on_each_file = (reply == QMessageBox.StandardButton.Yes)
+        
         if self.multiple_files_checkbox.isChecked() and self.input_files:
             self.file_list = self.input_files
             self.current_file_index = 0
@@ -984,9 +967,7 @@ class MainWindow(QMainWindow):
                     self.process_next_file()
                     return
                 elif clicked == exit_button:
-                    QMessageBox.information(
-                        self, "Conversion Cancelled", "Conversion process cancelled by user."
-                    )
+                    QMessageBox.information(self, "Conversion Cancelled", "Conversion process cancelled by user.")
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
@@ -998,25 +979,28 @@ class MainWindow(QMainWindow):
                 self.output_file = self.input_file.with_suffix(output_ext)
 
             if self.clip_checkbox.isChecked():
+                # Update supported extensions: now supports .seq, .mp4, and .avi
                 if self.current_extension not in [".seq", ".mp4", ".avi"]:
                     QMessageBox.critical(
                         self,
                         "Error",
-                        "Clipped output is only supported for .seq, .mp4, or .avi input in this example.",
+                        "Clipped output is only supported for .seq, .mp4, or .avi input in this example."
                     )
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
                 if output_ext == ".gif":
-                    QMessageBox.critical(self, "Error", "GIF output is not supported for clipping.")
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        "GIF output is not supported for clipping."
+                    )
                     self.convert_button.setEnabled(True)
                     self.select_file_button.setEnabled(True)
                     return
                 # For .seq and .mp4, convert to a temporary AVI file.
                 if self.current_extension in [".seq", ".mp4"]:
-                    self.temp_avi_file = self.input_file.parent / (
-                        self.input_file.stem + "_temp.avi"
-                    )
+                    self.temp_avi_file = self.input_file.parent / (self.input_file.stem + "_temp.avi")
                     success, message = video_to_avi(self.input_file, self.temp_avi_file)
                     if not success:
                         QMessageBox.critical(self, "Error", message)
@@ -1056,7 +1040,7 @@ class MainWindow(QMainWindow):
             self.thread = ConversionThread(
                 input_file=self.input_file,
                 output_file=self.output_file,
-                conversion_type=conversion_type,
+                conversion_type=conversion_type
             )
             self.thread.progress_signal.connect(self.update_progress)
             self.thread.finished_signal.connect(self.on_conversion_finished)
@@ -1124,15 +1108,15 @@ class MainWindow(QMainWindow):
             if exit_frame < enter_frame:
                 return False, f"Exit frame occurs before enter frame for intruder '{intruder}'."
             intervals.append((enter_frame, exit_frame, intruder))
-
+        
         intervals.sort(key=lambda x: x[0])
         for i in range(len(intervals) - 1):
-            if intervals[i + 1][0] <= intervals[i][1]:
+            if intervals[i+1][0] <= intervals[i][1]:
                 return False, (
                     "Overlapping intruder intervals found between "
-                    f"'{intervals[i][2]}' and '{intervals[i + 1][2]}'."
+                    f"'{intervals[i][2]}' and '{intervals[i+1][2]}'."
                 )
-
+        
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             return False, f"Could not open {video_path} for clipping."
@@ -1145,7 +1129,7 @@ class MainWindow(QMainWindow):
         codec_map = {".mp4": "mp4v", ".avi": "MJPG", ".mov": "mp4v", ".mkv": "mp4v"}
         codec_str = codec_map.get(ext, "mp4v")
         fourcc = cv2.VideoWriter_fourcc(*codec_str)
-        for enter_frame, exit_frame, intruder in intervals:
+        for (enter_frame, exit_frame, intruder) in intervals:
             output_name = f"{self.output_file.stem}_{intruder}intruder{self.output_file.suffix}"
             if self.output_folder and self.output_folder_checkbox.isChecked():
                 out_path = Path(self.output_folder) / output_name
@@ -1170,88 +1154,35 @@ class MainWindow(QMainWindow):
 
     def launch_sleap(self):
         try:
+            # Try to locate the conda executable
             conda_executable = os.path.expanduser("~/opt/anaconda3/bin/conda")
             if not os.path.exists(conda_executable):
                 conda_executable = os.path.expanduser("~/miniconda3/bin/conda")
             if not os.path.exists(conda_executable):
-                # cross-platform PATH lookup (works on Windows too)
-                conda_executable = shutil.which("conda") or "conda"
-
-            process = QProcess(self)  # keep parent to avoid GC
-
-            # debug output
+                conda_executable = "conda"  # Try using conda from PATH
+            
+            # Create a QProcess to run the SLEAP command with conda activation
+            process = QProcess(self)  # Parent it to prevent garbage collection
+            
+            # Connect signals to track process output for debugging
             process.readyReadStandardError.connect(
-                lambda: print(
-                    "SLEAP error:", process.readAllStandardError().data().decode(errors="ignore")
-                )
+                lambda: print("SLEAP error:", process.readAllStandardError().data().decode())
             )
-            process.readyReadStandardOutput.connect(
-                lambda: print(
-                    "SLEAP out:", process.readAllStandardOutput().data().decode(errors="ignore")
-                )
-            )
-
-            if platform.system() == "Windows":
-                # native conda.exe (avoids cmd.exe quoting headaches)
-                if (
-                    not conda_executable
-                    or conda_executable.lower().endswith(".bat")
-                    or conda_executable.lower() == "conda"
-                ):
-                    # find conda.exe in common locations
-                    for p in [
-                        os.path.expandvars(r"%ProgramData%\anaconda3\Scripts\conda.exe"),
-                        os.path.expandvars(r"%ProgramData%\miniconda3\Scripts\conda.exe"),
-                        os.path.expandvars(r"%USERPROFILE%\anaconda3\Scripts\conda.exe"),
-                        os.path.expandvars(r"%USERPROFILE%\miniconda3\Scripts\conda.exe"),
-                    ]:
-                        if os.path.exists(p):
-                            conda_executable = p
-                            break
-
-                if conda_executable.lower().endswith(".exe"):
-                    # launch conda directly
-                    process.setProgram(conda_executable)
-                    process.setArguments(["run", "-n", "sleap", "sleap-label"])
-                else:
-                    # fall back to .bat via cmd.exe. IMPORTANT: no embedded quotes.
-                    process.setProgram("cmd.exe")
-                    process.setArguments(
-                        ["/C", "call", conda_executable, "run", "-n", "sleap", "sleap-label"]
-                    )
-
-                # start in home
-                process.setWorkingDirectory(os.path.expanduser("~"))
-                process.start()
-
-                # conda can be slow to spawn on Windows
-                if not process.waitForStarted(15000):
-                    QMessageBox.critical(
-                        self,
-                        "Error",
-                        "Failed to start SLEAP. Ensure the 'sleap' env exists and SLEAP is installed.",
-                    )
-                    return
-
-            else:
-                # macOS/Linux: your original approach
-                process.setProgram(conda_executable)
-                process.setArguments(["run", "-n", "sleap", "sleap-label"])
-                process.start()
-
-                if not process.waitForStarted(10000):
-                    QMessageBox.critical(
-                        self,
-                        "Error",
-                        "Failed to start SLEAP. Make sure conda and SLEAP are properly installed.",
-                    )
-                    return
-
+            
+            # Use conda run instead of conda activate for more reliable execution
+            process.setProgram(conda_executable)
+            process.setArguments(["run", "-n", "sleap", "sleap-label"])
+            
+            process.start()
+            
+            if not process.waitForStarted(3000):
+                QMessageBox.critical(self, "Error", "Failed to start SLEAP. Make sure conda and SLEAP are properly installed.")
+                return
+                
             self.sleap_process = process
-
+            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error launching SLEAP: {str(e)}")
-
 
 # -----------------------------------------------------------------------------
 # Main Function
@@ -1273,11 +1204,10 @@ def main():
     palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 215))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
     app.setPalette(palette)
-
+    
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
