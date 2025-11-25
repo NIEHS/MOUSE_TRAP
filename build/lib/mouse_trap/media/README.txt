@@ -1,1 +1,0 @@
-Place optional assets like nih_logo.png here if you want a banner logo.
