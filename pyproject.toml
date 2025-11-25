@@ -28,8 +28,8 @@ docs = [
 ]
 dev = [
   "pytest>=7.0",
-  "ruff>=0.5",
-  "black>=24.0",
+  "ruff==0.5.7",
+  "black==24.4.2",
 ]
 
 [project.scripts]

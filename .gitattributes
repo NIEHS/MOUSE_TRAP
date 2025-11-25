@@ -1,0 +1,8 @@
+# Normalize text files to LF in the repo, even on Windows
+* text=auto
+
+# For source/config/docs, force LF line endings (no CRLF warnings)
+*.py   text eol=lf
+*.toml text eol=lf
+*.rst  text eol=lf
+*.md   text eol=lf
