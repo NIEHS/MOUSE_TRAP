@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mouse-trap"
+version = "0.1.0"
+description = "MOUSE-TRAP — Multi-Format File Converter & Video Annotator"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Riley Harper"},]
+license = {text = "MIT"}
+keywords = ["pyqt6", "video", "converter", "annotations", "sleap"]
+dependencies = [
+  "PyQt6>=6.4",
+  "opencv-python>=4.7",
+  "Pillow>=9.0",
+  "pdf2image>=1.16",
+  "pypandoc>=1.11",
+  "docx2pdf>=0.1.8",
+]
+
+[project.optional-dependencies]
+docs = [
+  "sphinx>=7.0",
+  "sphinx-autodoc-typehints>=1.24",
+  "furo>=2024.0.0; platform_system != 'Windows' or python_version >= '3.9'",
+]
+dev = [
+  "pytest>=7.0",
+  "ruff>=0.5",
+  "black>=24.0",
+]
+
+[project.scripts]
+mouse-trap = "mouse_trap.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mouse_trap = ["media/*"]
