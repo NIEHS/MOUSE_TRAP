@@ -7,9 +7,21 @@ from datetime import datetime
 
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QHBoxLayout, QLineEdit, QPushButton, QWidget, QTabWidget, QDoubleSpinBox, QSpinBox
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QWidget,
+    QTabWidget,
+    QDoubleSpinBox,
+    QSpinBox,
 )
+
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -19,6 +31,7 @@ def _canon_path(p: str) -> str:
         return os.path.normcase(os.path.abspath(os.path.normpath(str(p))))
     except Exception:
         return str(p).replace("/", os.sep).lower()
+
 
 def parse_latest_status(log_path):
     latest = {}
@@ -34,6 +47,7 @@ def parse_latest_status(log_path):
             if status in ("OK", "FAIL"):
                 latest[_canon_path(in_path)] = status
     return latest
+
 
 def _resolve_conda_executable():
     for name in ("conda.exe", "conda.bat", "conda"):
@@ -56,80 +70,367 @@ def _resolve_conda_executable():
             return c
     return "conda"
 
+
 # -----------------------------------------------------------------------------
 # Full sleap-nn "track" CLI spec
 # -----------------------------------------------------------------------------
 CLI_SPEC = [
-    {"group":"Essential", "key":"data_path", "flag":"--data_path", "short":"-i",
-     "type":"path_in", "required":True, "help":"Video (.mp4, etc.) or .slp"},
-    {"group":"Essential", "key":"model_paths", "flag":"--model_paths", "short":"-m",
-     "type":"paths", "required":False, "help":"One or more model directories"},
-    {"group":"Essential", "key":"output_path", "flag":"--output_path", "short":"-o",
-     "type":"path_out", "help":"Output .slp (defaults to <input>.predictions.slp)"},
-    {"group":"Essential", "key":"device", "flag":"--device", "short":"-d",
-     "type":"text", "placeholder":"auto | cpu | cuda:0", "default":"auto"},
-    {"group":"Essential", "key":"batch_size", "flag":"--batch_size", "short":"-b",
-     "type":"int", "min":1, "max":2048, "default":4},
-    {"group":"Essential", "key":"max_instances", "flag":"--max_instances", "short":"-n",
-     "type":"int_or_none", "min":0, "max":999, "default":None},
-    {"group":"Essential", "key":"tracking", "flag":"--tracking", "short":"-t",
-     "type":"bool", "default":False},
-    {"group":"Essential", "key":"peak_threshold", "flag":"--peak_threshold",
-     "type":"float", "min":0.0, "max":1.0, "default":0.2},
-    {"group":"Essential", "key":"integral_refinement", "flag":"--integral_refinement",
-     "type":"choice", "choices":["integral","none"], "default":"integral"},
-
-    {"group":"Model", "key":"backbone_ckpt_path", "flag":"--backbone_ckpt_path", "type":"path_in"},
-    {"group":"Model", "key":"head_ckpt_path",     "flag":"--head_ckpt_path",     "type":"path_in"},
-
-    {"group":"Image", "key":"max_height", "flag":"--max_height", "type":"int_or_none", "min":0, "max":16384},
-    {"group":"Image", "key":"max_width",  "flag":"--max_width",  "type":"int_or_none", "min":0, "max":16384},
-    {"group":"Image", "key":"input_scale","flag":"--input_scale","type":"float_or_none", "min":0.01, "max":100.0},
-    {"group":"Image", "key":"ensure_rgb","flag":"--ensure_rgb", "type":"bool"},
-    {"group":"Image", "key":"ensure_grayscale","flag":"--ensure_grayscale","type":"bool"},
-    {"group":"Image", "key":"crop_size","flag":"--crop_size","type":"int_or_none", "min":0, "max":4096},
-    {"group":"Image", "key":"anchor_part","flag":"--anchor_part","type":"text"},
-
-    {"group":"Data", "key":"only_labeled_frames",   "flag":"--only_labeled_frames",   "type":"bool"},
-    {"group":"Data", "key":"only_suggested_frames", "flag":"--only_suggested_frames", "type":"bool"},
-    {"group":"Data", "key":"video_index",           "flag":"--video_index",           "type":"int_or_none", "min":0, "max":9999},
-    {"group":"Data", "key":"video_dataset",         "flag":"--video_dataset",         "type":"text"},
-    {"group":"Data", "key":"video_input_format",    "flag":"--video_input_format",    "type":"choice", "choices":["channels_last","channels_first"], "default":"channels_last"},
-    {"group":"Data", "key":"frames",                "flag":"--frames",                "type":"text", "placeholder":"e.g. 0-100,200-300"},
-    {"group":"Data", "key":"no_empty_frames",       "flag":"--no_empty_frames",       "type":"bool"},
-
-    {"group":"Performance", "key":"queue_maxsize", "flag":"--queue_maxsize", "type":"int", "min":1, "max":4096, "default":8},
-
-    {"group":"Tracking", "key":"tracking_window_size","flag":"--tracking_window_size","type":"int", "min":1, "max":999, "default":5},
-    {"group":"Tracking", "key":"candidates_method","flag":"--candidates_method","type":"choice", "choices":["fixed_window","local_queues"], "default":"fixed_window"},
-    {"group":"Tracking", "key":"min_new_track_points","flag":"--min_new_track_points","type":"int", "min":0, "max":1000, "default":0},
-    {"group":"Tracking", "key":"min_match_points","flag":"--min_match_points","type":"int", "min":0, "max":1000, "default":0},
-    {"group":"Tracking", "key":"features","flag":"--features","type":"choice", "choices":["keypoints","centroids","bboxes","image"], "default":"keypoints"},
-    {"group":"Tracking", "key":"scoring_method","flag":"--scoring_method","type":"choice", "choices":["oks","cosine_sim","iou","euclidean_dist"], "default":"oks"},
-    {"group":"Tracking", "key":"scoring_reduction","flag":"--scoring_reduction","type":"choice", "choices":["mean","max","robust_quantile"], "default":"mean"},
-    {"group":"Tracking", "key":"robust_best_instance","flag":"--robust_best_instance","type":"float", "min":0.0, "max":1.0, "default":1.0},
-    {"group":"Tracking", "key":"track_matching_method","flag":"--track_matching_method","type":"choice", "choices":["hungarian","greedy"], "default":"hungarian"},
-    {"group":"Tracking", "key":"max_tracks","flag":"--max_tracks","type":"int_or_none", "min":0, "max":999, "default":None},
-    {"group":"Tracking", "key":"use_flow","flag":"--use_flow","type":"bool"},
-    {"group":"Tracking", "key":"of_img_scale","flag":"--of_img_scale","type":"float", "min":0.01, "max":10.0, "default":1.0, "enable_if":{"use_flow":True}},
-    {"group":"Tracking", "key":"of_window_size","flag":"--of_window_size","type":"int", "min":3, "max":101, "default":21, "enable_if":{"use_flow":True}},
-    {"group":"Tracking", "key":"of_max_levels","flag":"--of_max_levels","type":"int", "min":1, "max":8, "default":3, "enable_if":{"use_flow":True}},
-    {"group":"Tracking", "key":"post_connect_single_breaks","flag":"--post_connect_single_breaks","type":"bool"},
-
-    {"group":"Tracking (legacy-compatible)", "key":"tracking_pre_cull_to_target","flag":"--tracking_pre_cull_to_target","type":"bool"},
-    {"group":"Tracking (legacy-compatible)", "key":"tracking_target_instance_count","flag":"--tracking_target_instance_count","type":"int_or_none", "min":0, "max":64},
-    {"group":"Tracking (legacy-compatible)", "key":"tracking_pre_cull_iou_threshold","flag":"--tracking_pre_cull_iou_threshold","type":"float", "min":0.0, "max":1.0},
-    {"group":"Tracking (legacy-compatible)", "key":"tracking_clean_instance_count","flag":"--tracking_clean_instance_count","type":"int_or_none", "min":0, "max":64},
-    {"group":"Tracking (legacy-compatible)", "key":"tracking_clean_iou_threshold","flag":"--tracking_clean_iou_threshold","type":"float", "min":0.0, "max":1.0},
+    {
+        "group": "Essential",
+        "key": "data_path",
+        "flag": "--data_path",
+        "short": "-i",
+        "type": "path_in",
+        "required": True,
+        "help": "Video (.mp4, etc.) or .slp",
+    },
+    {
+        "group": "Essential",
+        "key": "model_paths",
+        "flag": "--model_paths",
+        "short": "-m",
+        "type": "paths",
+        "required": False,
+        "help": "One or more model directories",
+    },
+    {
+        "group": "Essential",
+        "key": "output_path",
+        "flag": "--output_path",
+        "short": "-o",
+        "type": "path_out",
+        "help": "Output .slp (defaults to <input>.predictions.slp)",
+    },
+    {
+        "group": "Essential",
+        "key": "device",
+        "flag": "--device",
+        "short": "-d",
+        "type": "text",
+        "placeholder": "auto | cpu | cuda:0",
+        "default": "auto",
+    },
+    {
+        "group": "Essential",
+        "key": "batch_size",
+        "flag": "--batch_size",
+        "short": "-b",
+        "type": "int",
+        "min": 1,
+        "max": 2048,
+        "default": 4,
+    },
+    {
+        "group": "Essential",
+        "key": "max_instances",
+        "flag": "--max_instances",
+        "short": "-n",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 999,
+        "default": None,
+    },
+    {
+        "group": "Essential",
+        "key": "tracking",
+        "flag": "--tracking",
+        "short": "-t",
+        "type": "bool",
+        "default": False,
+    },
+    {
+        "group": "Essential",
+        "key": "peak_threshold",
+        "flag": "--peak_threshold",
+        "type": "float",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.2,
+    },
+    {
+        "group": "Essential",
+        "key": "integral_refinement",
+        "flag": "--integral_refinement",
+        "type": "choice",
+        "choices": ["integral", "none"],
+        "default": "integral",
+    },
+    {
+        "group": "Model",
+        "key": "backbone_ckpt_path",
+        "flag": "--backbone_ckpt_path",
+        "type": "path_in",
+    },
+    {
+        "group": "Model",
+        "key": "head_ckpt_path",
+        "flag": "--head_ckpt_path",
+        "type": "path_in",
+    },
+    {
+        "group": "Image",
+        "key": "max_height",
+        "flag": "--max_height",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 16384,
+    },
+    {
+        "group": "Image",
+        "key": "max_width",
+        "flag": "--max_width",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 16384,
+    },
+    {
+        "group": "Image",
+        "key": "input_scale",
+        "flag": "--input_scale",
+        "type": "float_or_none",
+        "min": 0.01,
+        "max": 100.0,
+    },
+    {"group": "Image", "key": "ensure_rgb", "flag": "--ensure_rgb", "type": "bool"},
+    {
+        "group": "Image",
+        "key": "ensure_grayscale",
+        "flag": "--ensure_grayscale",
+        "type": "bool",
+    },
+    {
+        "group": "Image",
+        "key": "crop_size",
+        "flag": "--crop_size",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 4096,
+    },
+    {"group": "Image", "key": "anchor_part", "flag": "--anchor_part", "type": "text"},
+    {
+        "group": "Data",
+        "key": "only_labeled_frames",
+        "flag": "--only_labeled_frames",
+        "type": "bool",
+    },
+    {
+        "group": "Data",
+        "key": "only_suggested_frames",
+        "flag": "--only_suggested_frames",
+        "type": "bool",
+    },
+    {
+        "group": "Data",
+        "key": "video_index",
+        "flag": "--video_index",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 9999,
+    },
+    {
+        "group": "Data",
+        "key": "video_dataset",
+        "flag": "--video_dataset",
+        "type": "text",
+    },
+    {
+        "group": "Data",
+        "key": "video_input_format",
+        "flag": "--video_input_format",
+        "type": "choice",
+        "choices": ["channels_last", "channels_first"],
+        "default": "channels_last",
+    },
+    {
+        "group": "Data",
+        "key": "frames",
+        "flag": "--frames",
+        "type": "text",
+        "placeholder": "e.g. 0-100,200-300",
+    },
+    {
+        "group": "Data",
+        "key": "no_empty_frames",
+        "flag": "--no_empty_frames",
+        "type": "bool",
+    },
+    {
+        "group": "Performance",
+        "key": "queue_maxsize",
+        "flag": "--queue_maxsize",
+        "type": "int",
+        "min": 1,
+        "max": 4096,
+        "default": 8,
+    },
+    {
+        "group": "Tracking",
+        "key": "tracking_window_size",
+        "flag": "--tracking_window_size",
+        "type": "int",
+        "min": 1,
+        "max": 999,
+        "default": 5,
+    },
+    {
+        "group": "Tracking",
+        "key": "candidates_method",
+        "flag": "--candidates_method",
+        "type": "choice",
+        "choices": ["fixed_window", "local_queues"],
+        "default": "fixed_window",
+    },
+    {
+        "group": "Tracking",
+        "key": "min_new_track_points",
+        "flag": "--min_new_track_points",
+        "type": "int",
+        "min": 0,
+        "max": 1000,
+        "default": 0,
+    },
+    {
+        "group": "Tracking",
+        "key": "min_match_points",
+        "flag": "--min_match_points",
+        "type": "int",
+        "min": 0,
+        "max": 1000,
+        "default": 0,
+    },
+    {
+        "group": "Tracking",
+        "key": "features",
+        "flag": "--features",
+        "type": "choice",
+        "choices": ["keypoints", "centroids", "bboxes", "image"],
+        "default": "keypoints",
+    },
+    {
+        "group": "Tracking",
+        "key": "scoring_method",
+        "flag": "--scoring_method",
+        "type": "choice",
+        "choices": ["oks", "cosine_sim", "iou", "euclidean_dist"],
+        "default": "oks",
+    },
+    {
+        "group": "Tracking",
+        "key": "scoring_reduction",
+        "flag": "--scoring_reduction",
+        "type": "choice",
+        "choices": ["mean", "max", "robust_quantile"],
+        "default": "mean",
+    },
+    {
+        "group": "Tracking",
+        "key": "robust_best_instance",
+        "flag": "--robust_best_instance",
+        "type": "float",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 1.0,
+    },
+    {
+        "group": "Tracking",
+        "key": "track_matching_method",
+        "flag": "--track_matching_method",
+        "type": "choice",
+        "choices": ["hungarian", "greedy"],
+        "default": "hungarian",
+    },
+    {
+        "group": "Tracking",
+        "key": "max_tracks",
+        "flag": "--max_tracks",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 999,
+        "default": None,
+    },
+    {"group": "Tracking", "key": "use_flow", "flag": "--use_flow", "type": "bool"},
+    {
+        "group": "Tracking",
+        "key": "of_img_scale",
+        "flag": "--of_img_scale",
+        "type": "float",
+        "min": 0.01,
+        "max": 10.0,
+        "default": 1.0,
+        "enable_if": {"use_flow": True},
+    },
+    {
+        "group": "Tracking",
+        "key": "of_window_size",
+        "flag": "--of_window_size",
+        "type": "int",
+        "min": 3,
+        "max": 101,
+        "default": 21,
+        "enable_if": {"use_flow": True},
+    },
+    {
+        "group": "Tracking",
+        "key": "of_max_levels",
+        "flag": "--of_max_levels",
+        "type": "int",
+        "min": 1,
+        "max": 8,
+        "default": 3,
+        "enable_if": {"use_flow": True},
+    },
+    {
+        "group": "Tracking",
+        "key": "post_connect_single_breaks",
+        "flag": "--post_connect_single_breaks",
+        "type": "bool",
+    },
+    {
+        "group": "Tracking (legacy-compatible)",
+        "key": "tracking_pre_cull_to_target",
+        "flag": "--tracking_pre_cull_to_target",
+        "type": "bool",
+    },
+    {
+        "group": "Tracking (legacy-compatible)",
+        "key": "tracking_target_instance_count",
+        "flag": "--tracking_target_instance_count",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 64,
+    },
+    {
+        "group": "Tracking (legacy-compatible)",
+        "key": "tracking_pre_cull_iou_threshold",
+        "flag": "--tracking_pre_cull_iou_threshold",
+        "type": "float",
+        "min": 0.0,
+        "max": 1.0,
+    },
+    {
+        "group": "Tracking (legacy-compatible)",
+        "key": "tracking_clean_instance_count",
+        "flag": "--tracking_clean_instance_count",
+        "type": "int_or_none",
+        "min": 0,
+        "max": 64,
+    },
+    {
+        "group": "Tracking (legacy-compatible)",
+        "key": "tracking_clean_iou_threshold",
+        "flag": "--tracking_clean_iou_threshold",
+        "type": "float",
+        "min": 0.0,
+        "max": 1.0,
+    },
 ]
 
 # -------- GUI builders for CLI_SPEC (PyQt6) --------
-from PyQt6.QtWidgets import (QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QCheckBox,
-                             QComboBox, QPushButton, QHBoxLayout)
+
 
 def _make_widget(spec):
     t = spec["type"]
-    if t in ("path_in","path_out","paths","text"):
+    if t in ("path_in", "path_out", "paths", "text"):
         w = QLineEdit()
         if spec.get("placeholder"):
             w.setPlaceholderText(spec["placeholder"])
@@ -137,8 +438,12 @@ def _make_widget(spec):
             w.setText(str(spec["default"]))
         if t.startswith("path"):
             btn = QPushButton("Browse…")
-            row = QWidget(); h = QHBoxLayout(row); h.setContentsMargins(0,0,0,0)
-            h.addWidget(w, 1); h.addWidget(btn, 0)
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.addWidget(w, 1)
+            h.addWidget(btn, 0)
+
             def browse():
                 if t == "path_out":
                     p, _ = QFileDialog.getSaveFileName(row, "Select file")
@@ -151,27 +456,36 @@ def _make_widget(spec):
                         w.setText(w.text() + ";" + p)
                     else:
                         w.setText(p)
+
             btn.clicked.connect(browse)
             return row, w
         return w, w
-    if t in ("int","int_or_none"):
-        w = QSpinBox(); w.setRange(spec.get("min",0), spec.get("max",10**6))
-        if spec.get("default") is not None: w.setValue(int(spec["default"]))
+    if t in ("int", "int_or_none"):
+        w = QSpinBox()
+        w.setRange(spec.get("min", 0), spec.get("max", 10**6))
+        if spec.get("default") is not None:
+            w.setValue(int(spec["default"]))
         return w, w
-    if t in ("float","float_or_none"):
-        w = QDoubleSpinBox(); w.setDecimals(4)
+    if t in ("float", "float_or_none"):
+        w = QDoubleSpinBox()
+        w.setDecimals(4)
         w.setRange(spec.get("min", -1e9), spec.get("max", 1e9))
-        if spec.get("default") is not None: w.setValue(float(spec["default"]))
+        if spec.get("default") is not None:
+            w.setValue(float(spec["default"]))
         return w, w
     if t == "bool":
         w = QCheckBox()
-        if spec.get("default"): w.setChecked(True)
+        if spec.get("default"):
+            w.setChecked(True)
         return w, w
     if t == "choice":
-        w = QComboBox(); [w.addItem(c) for c in spec["choices"]]
-        if spec.get("default"): w.setCurrentText(spec["default"])
+        w = QComboBox()
+        [w.addItem(c) for c in spec["choices"]]
+        if spec.get("default"):
+            w.setCurrentText(spec["default"])
         return w, w
     raise ValueError(f"Unknown type {t}")
+
 
 def build_cli_tabs(parent, spec_list):
     tabs = QTabWidget(parent)
@@ -181,35 +495,55 @@ def build_cli_tabs(parent, spec_list):
         groups.setdefault(s["group"], []).append(s)
 
     for gname, items in groups.items():
-        page = QWidget(); form = QFormLayout(page)
+        page = QWidget()
+        form = QFormLayout(page)
         for s in items:
             wrow, wcore = _make_widget(s)
             label = s["flag"]
-            if s.get("short"): label = f"{s['flag']} ({s['short']})"
-            if s.get("help"): wcore.setToolTip(s["help"])
+            if s.get("short"):
+                label = f"{s['flag']} ({s['short']})"
+            if s.get("help"):
+                wcore.setToolTip(s["help"])
             form.addRow(label, wrow)
             controls[s["key"]] = wcore
         tabs.addTab(page, gname)
 
     def _apply_enables():
         def _val(ctrl):
-            from PyQt6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox
-            if isinstance(ctrl, QCheckBox): return ctrl.isChecked()
-            if isinstance(ctrl, QComboBox): return ctrl.currentText()
-            if isinstance(ctrl, (QSpinBox, QDoubleSpinBox)): return ctrl.value()
+            from PyQt6.QtWidgets import (
+                QCheckBox,
+                QComboBox,
+                QSpinBox,
+                QDoubleSpinBox,
+            )
+
+            if isinstance(ctrl, QCheckBox):
+                return ctrl.isChecked()
+            if isinstance(ctrl, QComboBox):
+                return ctrl.currentText()
+            if isinstance(ctrl, (QSpinBox, QDoubleSpinBox)):
+                return ctrl.value()
             return ctrl.text().strip()
-        values = {k: _val(c) for k,c in controls.items()}
+
+        values = {k: _val(c) for k, c in controls.items()}
         for s in spec_list:
             if "enable_if" in s:
                 ok = True
                 for depk, depv in s["enable_if"].items():
                     cur = values.get(depk)
                     if isinstance(cur, str) and isinstance(depv, bool):
-                        cur = cur.lower() in ("1","true","yes","on")
+                        cur = cur.lower() in ("1", "true", "yes", "on")
                     ok = ok and (cur == depv)
                 controls[s["key"]].setEnabled(ok)
 
-    from PyQt6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox
+    from PyQt6.QtWidgets import (
+        QCheckBox,
+        QComboBox,
+        QLineEdit,
+        QSpinBox,
+        QDoubleSpinBox,
+    )
+
     for w in controls.values():
         if isinstance(w, QCheckBox):
             w.stateChanged.connect(_apply_enables)
@@ -222,9 +556,16 @@ def build_cli_tabs(parent, spec_list):
     _apply_enables()
     return tabs, controls
 
+
 def extract_cli_state(controls, spec_list):
     state = {}
-    from PyQt6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox
+    from PyQt6.QtWidgets import (
+        QCheckBox,
+        QComboBox,
+        QSpinBox,
+        QDoubleSpinBox,
+    )
+
     for s in spec_list:
         w = controls[s["key"]]
         if isinstance(w, QCheckBox):
@@ -242,6 +583,7 @@ def extract_cli_state(controls, spec_list):
             state[s["key"]] = val
     return state
 
+
 def args_from_cli_state(state, spec_list, data_path, output_path, model_default=""):
     args = []
     for s in spec_list:
@@ -252,25 +594,34 @@ def args_from_cli_state(state, spec_list, data_path, output_path, model_default=
             continue
         val = state.get(key, None)
         if t == "bool":
-            if val: args.append(flag)
+            if val:
+                args.append(flag)
             continue
         if t == "paths":
             if val:
                 for p in val:
                     args += [flag, str(p)]
             continue
-        if val in (None, "", [], 0) and t not in ("int","float","choice","int_or_none","float_or_none"):
+        if val in (None, "", [], 0) and t not in (
+            "int",
+            "float",
+            "choice",
+            "int_or_none",
+            "float_or_none",
+        ):
             continue
-        if t in ("int_or_none","float_or_none"):
-            if val in (None, "", "None"): continue
+        if t in ("int_or_none", "float_or_none"):
+            if val in (None, "", "None"):
+                continue
         if t == "text" and not val:
             continue
         args += [flag, str(val)]
     args = ["--data_path", str(data_path), "--output_path", str(output_path)] + args
-    has_m = any(a in ("--model_paths","-m") for a in args)
+    has_m = any(a in ("--model_paths", "-m") for a in args)
     if not has_m and model_default:
         args = ["--model_paths", str(model_default)] + args
     return args
+
 
 class SleapBatchDialog(QDialog):
     def __init__(self, parent=None):
@@ -291,8 +642,12 @@ class SleapBatchDialog(QDialog):
                 edit.setText(p)
 
         self.videosRoot = QLineEdit(r"C:\Users\harperrm\GPU Run\clip (use for SLEAP)")
-        self.outDir = QLineEdit(r"C:\Users\harperrm\GPU Run\SLEAP_v4 (updated)\predictions")
-        self.logPath = QLineEdit(r"C:\Users\harperrm\GPU Run\SLEAP_v4 (updated)\predictions\batch_infer.log")
+        self.outDir = QLineEdit(
+            r"C:\Users\harperrm\GPU Run\SLEAP_v4 (updated)\predictions"
+        )
+        self.logPath = QLineEdit(
+            r"C:\Users\harperrm\GPU Run\SLEAP_v4 (updated)\predictions\batch_infer.log"
+        )
 
         for label, edit, is_dir in [
             ("Videos folder", self.videosRoot, True),
@@ -340,6 +695,7 @@ class SleapBatchDialog(QDialog):
             cli_state=cli_state,
         )
 
+
 class SleapBatchThread(QThread):
     progress = pyqtSignal(int, str)
     line = pyqtSignal(str)
@@ -354,7 +710,9 @@ class SleapBatchThread(QThread):
         root = self.p["videos_root"]
         if self.p.get("include_subfolders", False):
             for dirpath, dirnames, filenames in os.walk(root):
-                dirnames[:] = [d for d in dirnames if d != "_frames" and not d.endswith("_frames")]
+                dirnames[:] = [
+                    d for d in dirnames if d != "_frames" and not d.endswith("_frames")
+                ]
                 for fn in filenames:
                     ext = os.path.splitext(fn)[1].lower()
                     if ext in self.p["exts"]:
@@ -398,11 +756,28 @@ class SleapBatchThread(QThread):
                 envname = self.p["env"]
                 if platform.system() == "Windows":
                     conda_cmd = f'"{conda_exe}"' if " " in conda_exe else conda_exe
-                    base = ["cmd.exe", "/d", "/c", conda_cmd, "run",
-                            "--no-capture-output", "-n", envname, "sleap-nn", "track"]
+                    base = [
+                        "cmd.exe",
+                        "/d",
+                        "/c",
+                        conda_cmd,
+                        "run",
+                        "--no-capture-output",
+                        "-n",
+                        envname,
+                        "sleap-nn",
+                        "track",
+                    ]
                 else:
-                    base = [conda_exe, "run", "--no-capture-output",
-                            "-n", envname, "sleap-nn", "track"]
+                    base = [
+                        conda_exe,
+                        "run",
+                        "--no-capture-output",
+                        "-n",
+                        envname,
+                        "sleap-nn",
+                        "track",
+                    ]
 
         state = self.p.get("cli_state", {}) or {}
         cli_args = args_from_cli_state(

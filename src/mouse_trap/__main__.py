@@ -5,6 +5,7 @@ from PyQt6.QtGui import QPalette
 
 from .gui import MainWindow
 
+
 def main():
     app = QApplication(sys.argv)
     # Light palette

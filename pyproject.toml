@@ -40,3 +40,21 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 mouse_trap = ["media/*"]
+
+# --------------------
+# Linting / formatting
+# --------------------
+[tool.black]
+line-length = 88
+target-version = ["py313"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+src = ["src", "tests"]
+exclude = ["build", "dist", ".venv", "docs/_build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E203", "E501"]

@@ -1,32 +1,24 @@
 import os
-import re
 from pathlib import Path
 
 from PyQt6.QtCore import pyqtSlot, Qt, QProcess
 from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
-    QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QListView,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
-    QSlider,
-    QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
     QTreeView,
     QVBoxLayout,
     QWidget,
@@ -35,6 +27,7 @@ from PyQt6.QtWidgets import (
 from .conversion import video_to_avi, ConversionThread
 from .annotation import VideoAnnotationDialog
 from .sleap_cli import SleapBatchDialog, SleapBatchThread
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -303,6 +296,7 @@ class MainWindow(QMainWindow):
             return
         mapping = {}
         import csv
+
         try:
             with open(fileName, newline="", encoding="utf-8-sig") as csvfile:
                 reader = csv.DictReader(csvfile)
@@ -373,13 +367,15 @@ class MainWindow(QMainWindow):
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Process File?")
                 msg_box.setText(f"Do you want to process {self.input_file.name}?")
-                yes_button = msg_box.addButton("Yes", QMessageBox.ButtonRole.YesRole)
+                msg_box.addButton("Yes", QMessageBox.ButtonRole.YesRole)
                 no_button = msg_box.addButton("No", QMessageBox.ButtonRole.NoRole)
                 exit_button = msg_box.addButton(
                     "Exit", QMessageBox.ButtonRole.RejectRole
                 )
+
                 msg_box.exec()
                 clicked = msg_box.clickedButton()
+
                 if clicked == no_button:
                     self.current_file_index += 1
                     self.progress_bar.setValue(0)
@@ -550,6 +546,7 @@ class MainWindow(QMainWindow):
                 )
 
         import cv2
+
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             return False, f"Could not open {video_path} for clipping."
@@ -588,16 +585,20 @@ class MainWindow(QMainWindow):
         try:
             proc = QProcess(self)
             proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-            proc.readyReadStandardOutput.connect(lambda: self._append_process_output(proc))
+            proc.readyReadStandardOutput.connect(
+                lambda: self._append_process_output(proc)
+            )
 
             def _finished(exitCode, _status):
                 self._append_console(f"SLEAP exited with code {exitCode}")
                 self.sleap_button.setEnabled(True)
+
             proc.finished.connect(_finished)
 
             def _err(_):
                 self._append_console("Failed to start SLEAP process.")
                 self.sleap_button.setEnabled(True)
+
             proc.errorOccurred.connect(_err)
 
             sleap_label = os.environ.get("SLEAP_LABEL", "")
@@ -606,20 +607,41 @@ class MainWindow(QMainWindow):
                 args = []
             else:
                 from shutil import which
+
                 found = which("sleap-label")
                 if found:
                     program = found
                     args = []
                 else:
                     from .sleap_cli import _resolve_conda_executable
+
                     conda_executable = _resolve_conda_executable()
                     if os.name == "nt":
-                        conda_cmd = f'"{conda_executable}"' if " " in conda_executable else conda_executable
+                        conda_cmd = (
+                            f'"{conda_executable}"'
+                            if " " in conda_executable
+                            else conda_executable
+                        )
                         program = "cmd.exe"
-                        args = ["/d", "/c", conda_cmd, "run", "--no-capture-output", "-n", "sleap", "sleap-label"]
+                        args = [
+                            "/d",
+                            "/c",
+                            conda_cmd,
+                            "run",
+                            "--no-capture-output",
+                            "-n",
+                            "sleap",
+                            "sleap-label",
+                        ]
                     else:
                         program = conda_executable
-                        args = ["run", "--no-capture-output", "-n", "sleap", "sleap-label"]
+                        args = [
+                            "run",
+                            "--no-capture-output",
+                            "-n",
+                            "sleap",
+                            "sleap-label",
+                        ]
 
             self._append_console(f"Launching: {program} {' '.join(args)}")
             self.sleap_button.setEnabled(False)
@@ -628,7 +650,11 @@ class MainWindow(QMainWindow):
             proc.start()
 
             if not proc.waitForStarted(5000):
-                QMessageBox.critical(self, "Error", "Failed to start SLEAP. Check your conda env and PATH.")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "Failed to start SLEAP. Check your conda env and PATH.",
+                )
                 self.sleap_button.setEnabled(True)
                 return
 

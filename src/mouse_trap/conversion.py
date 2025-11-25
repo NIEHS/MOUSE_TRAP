@@ -8,6 +8,7 @@ from pdf2image import convert_from_path
 from PIL import Image
 from PyQt6.QtCore import QProcess, QThread, pyqtSignal
 
+
 # -----------------------------------------------------------------------------
 # Helper Function for Video Conversion (seq or mp4 to AVI)
 # -----------------------------------------------------------------------------

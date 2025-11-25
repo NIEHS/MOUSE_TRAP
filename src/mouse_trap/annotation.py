@@ -1,5 +1,4 @@
 import csv
-from pathlib import Path
 
 import cv2
 from PyQt6.QtCore import QEvent, QTimer, Qt, QUrl
@@ -8,7 +7,6 @@ from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -18,18 +16,16 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMenu,
     QMessageBox,
-    QPlainTextEdit,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSlider,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
-    QTreeView,
     QVBoxLayout,
     QWidget,
 )
+
 
 # -----------------------------------------------------------------------------
 # Integrated Video Annotation Dialog (using Qt Multimedia)

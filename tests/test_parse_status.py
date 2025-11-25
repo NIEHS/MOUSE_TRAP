@@ -1,6 +1,7 @@
 from mouse_trap.sleap_cli import parse_latest_status
 from pathlib import Path
 
+
 def test_parse_latest_status(tmp_path: Path):
     log = tmp_path / "batch.log"
     lines = [
@@ -12,4 +13,4 @@ def test_parse_latest_status(tmp_path: Path):
     latest = parse_latest_status(str(log))
     assert latest
     # latest status for video1 should be FAIL
-    assert any(v.endswith('video1.mp4') for v in latest)
+    assert any(v.endswith("video1.mp4") for v in latest)
