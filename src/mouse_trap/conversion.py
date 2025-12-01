@@ -7,12 +7,15 @@ from docx2pdf import convert as docx2pdf_convert
 from pdf2image import convert_from_path
 from PIL import Image
 from PyQt6.QtCore import QProcess, QThread, pyqtSignal
+from typing import Optional, Tuple, Union
 
 
 # -----------------------------------------------------------------------------
 # Helper Function for Video Conversion (seq or mp4 to AVI)
 # -----------------------------------------------------------------------------
-def video_to_avi(input_path, avi_path):
+def video_to_avi(
+    input_path: Union[Path, str], avi_path: Union[Path, str]
+) -> Tuple[bool, str]:
     cmd = [
         "ffmpeg",
         "-i",
@@ -46,17 +49,28 @@ def video_to_avi(input_path, avi_path):
 # Conversion Thread for Non-Clipping Conversions
 # -----------------------------------------------------------------------------
 class ConversionThread(QThread):
+    """Run a long-running conversion in a worker thread."""
+
+    #: Emitted with an integer percentage of overall progress (0-100).
     progress_signal = pyqtSignal(int)
+
+    #: Emitted when conversion finishes. Arguments: (success, message).
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self, input_file, output_file, conversion_type, parent=None):
+    def __init__(
+        self,
+        input_file: Union[Path, str],
+        output_file: Union[Path, str],
+        conversion_type: str,
+        parent: Optional[object] = None,
+    ) -> None:
         super().__init__(parent)
         self.input_file = Path(input_file)
         self.output_file = Path(output_file)
         self.conversion_type = conversion_type
         self.total_duration_ms = None  # Only used for ffmpeg conversions if needed
 
-    def run(self):
+    def run(self) -> None:
         try:
             success, msg = False, "Unknown conversion"
             if self.conversion_type == "seq_to_mp4":
@@ -91,7 +105,7 @@ class ConversionThread(QThread):
         except Exception as e:
             self.finished_signal.emit(False, str(e))
 
-    def seq_to_mp4(self):
+    def seq_to_mp4(self) -> Tuple[bool, str]:
         cap = cv2.VideoCapture(str(self.input_file))
         if not cap.isOpened():
             return False, f"Could not open {self.input_file} as .seq."
@@ -117,7 +131,7 @@ class ConversionThread(QThread):
         out.release()
         return True, f"Converted .seq to .mp4: {self.output_file}"
 
-    def ffmpeg_video_convert(self):
+    def ffmpeg_video_convert(self) -> Tuple[bool, str]:
         process = QProcess()
         cmd = [
             "ffmpeg",
@@ -143,7 +157,7 @@ class ConversionThread(QThread):
         else:
             return False, "FFmpeg conversion failed."
 
-    def handle_ffmpeg_output(self, process):
+    def handle_ffmpeg_output(self, process: QProcess) -> None:
         output = process.readAllStandardOutput().data().decode()
         for line in output.splitlines():
             if line.startswith("out_time_ms="):
@@ -155,7 +169,7 @@ class ConversionThread(QThread):
                 except Exception:
                     pass
 
-    def image_to_image(self):
+    def image_to_image(self) -> Tuple[bool, str]:
         try:
             img = Image.open(self.input_file)
             if img.mode in ["RGBA", "P"]:
@@ -165,7 +179,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"Image conversion failed: {str(e)}"
 
-    def image_to_pdf(self):
+    def image_to_pdf(self) -> Tuple[bool, str]:
         try:
             img = Image.open(self.input_file)
             if img.mode in ("RGBA", "P"):
@@ -175,7 +189,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"Image->PDF conversion failed: {str(e)}"
 
-    def pdf_to_image(self):
+    def pdf_to_image(self) -> Tuple[bool, str]:
         try:
             base_name = self.output_file.stem
             out_dir = self.output_file.parent
@@ -192,7 +206,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"PDF->Image conversion failed: {str(e)}"
 
-    def pdf_to_docx(self):
+    def pdf_to_docx(self) -> Tuple[bool, str]:
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "docx", outputfile=str(self.output_file)
@@ -203,7 +217,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"PDF->DOCX failed: {str(e)}"
 
-    def pdf_to_txt(self):
+    def pdf_to_txt(self) -> Tuple[bool, str]:
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "plain", outputfile=str(self.output_file)
@@ -214,14 +228,14 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"PDF->TXT failed: {str(e)}"
 
-    def docx_to_pdf(self):
+    def docx_to_pdf(self) -> Tuple[bool, str]:
         try:
             docx2pdf_convert(str(self.input_file), str(self.output_file))
             return True, f"DOCX->PDF conversion to {self.output_file} completed."
         except Exception as e:
             return False, f"DOCX->PDF failed: {str(e)}"
 
-    def docx_to_txt(self):
+    def docx_to_txt(self) -> Tuple[bool, str]:
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "plain", outputfile=str(self.output_file)
@@ -232,7 +246,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"DOCX->TXT failed: {str(e)}"
 
-    def txt_to_pdf(self):
+    def txt_to_pdf(self) -> Tuple[bool, str]:
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "pdf", outputfile=str(self.output_file)
@@ -243,7 +257,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"TXT->PDF failed: {str(e)}"
 
-    def txt_to_docx(self):
+    def txt_to_docx(self) -> Tuple[bool, str]:
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "docx", outputfile=str(self.output_file)
@@ -254,7 +268,7 @@ class ConversionThread(QThread):
         except Exception as e:
             return False, f"TXT->DOCX failed: {str(e)}"
 
-    def generic_conversion(self):
+    def generic_conversion(self) -> Tuple[bool, str]:
         cmd = ["ffmpeg", "-i", str(self.input_file), "-y", str(self.output_file)]
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, stderr = process.communicate()

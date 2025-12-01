@@ -27,10 +27,11 @@ from PyQt6.QtWidgets import (
 from .conversion import video_to_avi, ConversionThread
 from .annotation import VideoAnnotationDialog
 from .sleap_cli import SleapBatchDialog, SleapBatchThread
+from typing import Dict, Tuple
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Multi-Format File Converter & Video Annotator")
         self.resize(900, 600)
@@ -179,14 +180,14 @@ class MainWindow(QMainWindow):
         }
         self.setStyleSheet("QMainWindow { background-color: #FFFFFF; }")
 
-    def _append_console(self, s: str):
+    def _append_console(self, s: str) -> None:
         try:
             if s:
                 self.console.appendPlainText(s.rstrip("\n"))
         except Exception:
             pass
 
-    def _append_process_output(self, proc):
+    def _append_process_output(self, proc: QProcess) -> None:
         try:
             data = proc.readAllStandardOutput().data().decode(errors="ignore")
             if data:
@@ -195,19 +196,19 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def toggle_output_folder_button(self, state):
+    def toggle_output_folder_button(self, state: int) -> None:
         if state == Qt.CheckState.Checked.value:
             self.output_folder_button.setEnabled(True)
         else:
             self.output_folder_button.setEnabled(False)
             self.output_folder = None
 
-    def select_output_folder(self):
+    def select_output_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder:
             self.output_folder = folder
 
-    def select_file(self):
+    def select_file(self) -> None:
         file_dialog = QFileDialog()
         if self.multiple_files_checkbox.isChecked():
             file_paths, _ = file_dialog.getOpenFileNames(
@@ -227,7 +228,7 @@ class MainWindow(QMainWindow):
                 self.current_extension = self.input_file.suffix.lower()
                 self.update_output_options()
 
-    def select_folders_and_filter(self):
+    def select_folders_and_filter(self) -> None:
         dialog = QFileDialog(self, "Select Input Folders")
         dialog.setFileMode(QFileDialog.FileMode.Directory)
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
@@ -281,14 +282,14 @@ class MainWindow(QMainWindow):
                 + (" (recursive)." if recursive else "."),
             )
 
-    def update_output_options(self):
+    def update_output_options(self) -> None:
         self.output_combo.clear()
         if self.current_extension in self.OUTPUT_FORMATS:
             self.output_combo.addItems(self.OUTPUT_FORMATS[self.current_extension])
         else:
             self.output_combo.addItem(".mp4")
 
-    def import_csv_annotations_multi(self):
+    def import_csv_annotations_multi(self) -> None:
         fileName, _ = QFileDialog.getOpenFileName(
             self, "Import CSV Annotations for Multiple Files", "", "CSV Files (*.csv)"
         )
@@ -338,7 +339,7 @@ class MainWindow(QMainWindow):
             self, "CSV Imported", "CSV annotations mapping imported successfully."
         )
 
-    def start_conversion(self):
+    def start_conversion(self) -> None:
         reply = QMessageBox.question(
             self,
             "Prompt Setting",
@@ -359,7 +360,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", "No input file selected.")
             return
 
-    def process_next_file(self):
+    def process_next_file(self) -> None:
         if self.current_file_index < len(self.file_list):
             self.input_file = self.file_list[self.current_file_index]
             self.current_extension = self.input_file.suffix.lower()
@@ -477,7 +478,7 @@ class MainWindow(QMainWindow):
             self.convert_button.setEnabled(True)
             self.select_file_button.setEnabled(True)
 
-    def determine_conversion_type(self, input_ext, output_ext):
+    def determine_conversion_type(self, input_ext: str, output_ext: str) -> str:
         if input_ext == ".seq" and output_ext == ".mp4":
             return "seq_to_mp4"
         elif input_ext == ".seq" and output_ext == ".avi":
@@ -509,11 +510,11 @@ class MainWindow(QMainWindow):
         return "generic_conversion"
 
     @pyqtSlot(int)
-    def update_progress(self, value):
+    def update_progress(self, value: int) -> None:
         self.progress_bar.setValue(value)
 
     @pyqtSlot(bool, str)
-    def on_conversion_finished(self, success, message):
+    def on_conversion_finished(self, success: bool, message: str) -> None:
         if not success:
             QMessageBox.critical(self, "Error", message)
             self.convert_button.setEnabled(True)
@@ -523,7 +524,9 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.process_next_file()
 
-    def clip_by_annotations(self, annotations, video_path):
+    def clip_by_annotations(
+        self, annotations: Dict[str, Dict[str, int]], video_path: Path
+    ) -> Tuple[bool, str]:
         intervals = []
         for intruder, data in annotations.items():
             if "enter" not in data or "exit" not in data:
@@ -581,7 +584,7 @@ class MainWindow(QMainWindow):
         cap.release()
         return True, f"Successfully clipped intruders for file {self.input_file.name}."
 
-    def launch_sleap(self):
+    def launch_sleap(self) -> None:
         try:
             proc = QProcess(self)
             proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
@@ -664,7 +667,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Error launching SLEAP: {str(e)}")
             self.sleap_button.setEnabled(True)
 
-    def start_sleap_batch(self):
+    def start_sleap_batch(self) -> None:
         dlg = SleapBatchDialog(self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -680,15 +683,15 @@ class MainWindow(QMainWindow):
         self.sleap_batch_button.setEnabled(False)
         self.sleapThread.start()
 
-    def _on_sleap_progress(self, percent, name):
+    def _on_sleap_progress(self, percent: int, name: str) -> None:
         try:
             self.progress_bar.setValue(percent)
         except Exception:
             pass
 
-    def _on_sleap_line(self, text):
+    def _on_sleap_line(self, text: str) -> None:
         self._append_console(text)
 
-    def _on_sleap_done(self):
+    def _on_sleap_done(self) -> None:
         self.sleap_batch_button.setEnabled(True)
         QMessageBox.information(self, "SLEAP", "Batch inference finished.")

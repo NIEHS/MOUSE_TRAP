@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QSpinBox,
 )
+from typing import Any, Dict, List, Tuple, Optional
 
 
 # -----------------------------------------------------------------------------
@@ -33,7 +34,7 @@ def _canon_path(p: str) -> str:
         return str(p).replace("/", os.sep).lower()
 
 
-def parse_latest_status(log_path):
+def parse_latest_status(log_path: str) -> Dict[str, str]:
     latest = {}
     if not os.path.exists(log_path):
         return latest
@@ -49,7 +50,7 @@ def parse_latest_status(log_path):
     return latest
 
 
-def _resolve_conda_executable():
+def _resolve_conda_executable() -> str:
     for name in ("conda.exe", "conda.bat", "conda"):
         p = shutil.which(name)
         if p:
@@ -428,7 +429,7 @@ CLI_SPEC = [
 # -------- GUI builders for CLI_SPEC (PyQt6) --------
 
 
-def _make_widget(spec):
+def _make_widget(spec: Dict[str, Any]) -> Tuple[QWidget, QWidget]:
     t = spec["type"]
     if t in ("path_in", "path_out", "paths", "text"):
         w = QLineEdit()
@@ -487,7 +488,9 @@ def _make_widget(spec):
     raise ValueError(f"Unknown type {t}")
 
 
-def build_cli_tabs(parent, spec_list):
+def build_cli_tabs(
+    parent: QWidget, spec_list: List[Dict[str, Any]]
+) -> Tuple[QTabWidget, Dict[str, QWidget]]:
     tabs = QTabWidget(parent)
     controls = {}
     groups = {}
@@ -557,7 +560,9 @@ def build_cli_tabs(parent, spec_list):
     return tabs, controls
 
 
-def extract_cli_state(controls, spec_list):
+def extract_cli_state(
+    controls: Dict[str, QWidget], spec_list: List[Dict[str, Any]]
+) -> Dict[str, Any]:
     state = {}
     from PyQt6.QtWidgets import (
         QCheckBox,
@@ -584,7 +589,13 @@ def extract_cli_state(controls, spec_list):
     return state
 
 
-def args_from_cli_state(state, spec_list, data_path, output_path, model_default=""):
+def args_from_cli_state(
+    state: Dict[str, Any],
+    spec_list: List[Dict[str, Any]],
+    data_path: str,
+    output_path: str,
+    model_default: str = "",
+) -> List[str]:
     args = []
     for s in spec_list:
         key = s["key"]
@@ -624,7 +635,7 @@ def args_from_cli_state(state, spec_list, data_path, output_path, model_default=
 
 
 class SleapBatchDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[object] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Run SLEAP Inference")
         form = QFormLayout(self)
@@ -681,7 +692,7 @@ class SleapBatchDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
 
-    def values(self):
+    def values(self) -> Dict[str, Any]:
         cli_state = extract_cli_state(self.cliControls, CLI_SPEC)
         return dict(
             videos_root=self.videosRoot.text().strip(),
@@ -697,15 +708,22 @@ class SleapBatchDialog(QDialog):
 
 
 class SleapBatchThread(QThread):
+    """Run a SLEAP batch process in a worker thread."""
+
+    #: Progress updates as (percent, video_basename).
     progress = pyqtSignal(int, str)
+
+    #: One line of textual output from the SLEAP CLI process.
     line = pyqtSignal(str)
+
+    #: Emitted once when all batch jobs have completed.
     done = pyqtSignal()
 
-    def __init__(self, params, parent=None):
+    def __init__(self, params: Dict[str, Any], parent: Optional[object] = None) -> None:
         super().__init__(parent)
         self.p = params
 
-    def _collect_videos(self):
+    def _collect_videos(self) -> List[str]:
         vids = []
         root = self.p["videos_root"]
         if self.p.get("include_subfolders", False):
@@ -735,12 +753,12 @@ class SleapBatchThread(QThread):
                 pass
         return vids
 
-    def _build_out_path(self, video_path):
+    def _build_out_path(self, video_path: str) -> str:
         rel = os.path.relpath(video_path, self.p["videos_root"])
         safe = re.sub(r'[\\/:*?"<>|]', "_", rel)
         return os.path.join(self.p["outdir"], f"{safe}.predictions.slp")
 
-    def _sleap_args(self, v, out_path):
+    def _sleap_args(self, v: str, out_path: str) -> List[str]:
         sleap_nn = os.environ.get("SLEAP_NN", "")
         if sleap_nn and os.path.exists(sleap_nn):
             base = [sleap_nn, "track"]
@@ -785,7 +803,7 @@ class SleapBatchThread(QThread):
         )
         return base + cli_args
 
-    def run(self):
+    def run(self) -> None:
         try:
             os.makedirs(self.p["outdir"], exist_ok=True)
             latest = parse_latest_status(self.p["log"]) if self.p["respect_log"] else {}

@@ -1,11 +1,12 @@
-multiformat-app
+mouse-trap
 ================
 
-Welcome to the documentation for **multiformat-app** — a packaged
-version of your Multi-Format File Converter & Video Annotator GUI.
+Welcome to the documentation for **MOUSE_TRAP**.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Contents:
 
    usage
+   development
    api

@@ -25,13 +25,15 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from typing import Union
+from pathlib import Path
 
 
 # -----------------------------------------------------------------------------
 # Integrated Video Annotation Dialog (using Qt Multimedia)
 # -----------------------------------------------------------------------------
 class VideoAnnotationDialog(QDialog):
-    def __init__(self, video_path, parent=None):
+    def __init__(self, video_path: Union[str, Path], parent=None) -> None:
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Window)
         self.setWindowTitle("Video Annotation")
@@ -59,7 +61,7 @@ class VideoAnnotationDialog(QDialog):
         initial_position = int(1000 / self.fps)
         self.mediaPlayer.setPosition(initial_position)
 
-    def init_video_section(self):
+    def init_video_section(self) -> None:
         self.videoSection = QWidget(self)
         layout = QVBoxLayout(self.videoSection)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -117,7 +119,7 @@ class VideoAnnotationDialog(QDialog):
         layout.addWidget(self.frameLabel)
         layout.addLayout(controlLayout)
 
-    def init_annotation_panel(self):
+    def init_annotation_panel(self) -> None:
         self.annotationGroup = QGroupBox("Annotations", self)
         annLayout = QVBoxLayout(self.annotationGroup)
         annLayout.setContentsMargins(5, 5, 5, 5)
@@ -149,7 +151,7 @@ class VideoAnnotationDialog(QDialog):
 
         self.refresh_annotation_table()
 
-    def setup_splitter(self):
+    def setup_splitter(self) -> None:
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         splitter.addWidget(self.videoSection)
         splitter.addWidget(self.annotationGroup)
@@ -159,16 +161,16 @@ class VideoAnnotationDialog(QDialog):
         mainLayout.addWidget(splitter)
         self.setLayout(mainLayout)
 
-    def on_cell_clicked(self, row, column):
+    def on_cell_clicked(self, row: int, column: int) -> None:
         self.clicked_row = row
         self.clicked_column = column
         self.singleClickTimer.start(250)
 
-    def on_cell_double_clicked(self, row, column):
+    def on_cell_double_clicked(self, row: int, column: int) -> None:
         if self.singleClickTimer.isActive():
             self.singleClickTimer.stop()
 
-    def perform_single_click(self):
+    def perform_single_click(self) -> None:
         if self.clicked_column in [1, 2]:
             item = self.annotationTable.item(self.clicked_row, self.clicked_column)
             try:
@@ -178,7 +180,7 @@ class VideoAnnotationDialog(QDialog):
             except ValueError:
                 pass
 
-    def show_context_menu(self, pos):
+    def show_context_menu(self, pos) -> None:
         index = self.annotationTable.indexAt(pos)
         if not index.isValid():
             return
@@ -205,7 +207,7 @@ class VideoAnnotationDialog(QDialog):
                 del self.annotations[intruder]
                 self.refresh_annotation_table()
 
-    def eventFilter(self, source, event):
+    def eventFilter(self, source, event) -> bool:
         if source is self.annotationTable and event.type() == QEvent.Type.KeyPress:
             if event.key() == Qt.Key.Key_Delete:
                 selected_rows = {
@@ -219,7 +221,7 @@ class VideoAnnotationDialog(QDialog):
                 return True
         return super().eventFilter(source, event)
 
-    def import_csv_annotations_multi(self):
+    def import_csv_annotations_multi(self) -> None:
         fileName, _ = QFileDialog.getOpenFileName(
             self, "Import CSV Annotations for Multiple Files", "", "CSV Files (*.csv)"
         )
@@ -267,11 +269,11 @@ class VideoAnnotationDialog(QDialog):
             self, "CSV Imported", "CSV annotations mapping imported successfully."
         )
 
-    def clear_annotations(self):
+    def clear_annotations(self) -> None:
         self.annotations = {}
         self.refresh_annotation_table()
 
-    def refresh_annotation_table(self):
+    def refresh_annotation_table(self) -> None:
         self.annotationTable.blockSignals(True)
         self.annotationTable.setRowCount(0)
         for i, (intruder, data) in enumerate(self.annotations.items()):
@@ -285,7 +287,7 @@ class VideoAnnotationDialog(QDialog):
             self.annotationTable.setItem(i, 2, exit_item)
         self.annotationTable.blockSignals(False)
 
-    def table_item_changed(self, item):
+    def table_item_changed(self, item) -> None:
         row = item.row()
         intruder_item = self.annotationTable.item(row, 0)
         if not intruder_item:
@@ -298,7 +300,7 @@ class VideoAnnotationDialog(QDialog):
             return
         self.annotations[intruder] = {"enter": enter, "exit": exit_val}
 
-    def toggle_play(self):
+    def toggle_play(self) -> None:
         if self.mediaPlayer.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.mediaPlayer.pause()
             self.playButton.setText("Play")
@@ -306,27 +308,27 @@ class VideoAnnotationDialog(QDialog):
             self.mediaPlayer.play()
             self.playButton.setText("Pause")
 
-    def position_changed(self, position):
+    def position_changed(self, position: int) -> None:
         self.positionSlider.setValue(position)
         frame = min(int(position / 1000.0 * self.fps) + 1, self.total_frames)
         self.frameLabel.setText(f"Frame: {frame if frame > 0 else 1}")
         self.update_preview()
 
-    def duration_changed(self, duration):
+    def duration_changed(self, duration: int) -> None:
         self.positionSlider.setRange(0, duration)
         self.positionSlider.setSingleStep(int(1000 / self.fps))
 
-    def set_position(self, position):
+    def set_position(self, position: int) -> None:
         self.mediaPlayer.setPosition(position)
 
-    def slider_released(self):
+    def slider_released(self) -> None:
         pos = self.positionSlider.value()
         frame_ms = int(1000 / self.fps)
         rounded = round(pos / frame_ms) * frame_ms
         self.mediaPlayer.setPosition(rounded)
         QTimer.singleShot(150, self.update_preview)
 
-    def update_preview(self):
+    def update_preview(self) -> None:
         position = self.mediaPlayer.position()
         self.cap_preview.set(cv2.CAP_PROP_POS_MSEC, position)
         ret, frame = self.cap_preview.read()
@@ -349,15 +351,15 @@ class VideoAnnotationDialog(QDialog):
             )
             self.previewLabel.setPixmap(pixmap)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.update_preview()
 
-    def showEvent(self, event):
+    def showEvent(self, event) -> None:
         super().showEvent(event)
         QTimer.singleShot(0, self.update_preview)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event) -> None:
         try:
             step = int(self.scrubStepCombo.currentText())
         except ValueError:
@@ -373,7 +375,7 @@ class VideoAnnotationDialog(QDialog):
         else:
             super().keyPressEvent(event)
 
-    def mark_enter(self):
+    def mark_enter(self) -> None:
         current_position = self.mediaPlayer.position()
         frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
         intruder_name, ok = QInputDialog.getText(
@@ -398,7 +400,7 @@ class VideoAnnotationDialog(QDialog):
                 )
                 self.refresh_annotation_table()
 
-    def mark_exit(self):
+    def mark_exit(self) -> None:
         current_position = self.mediaPlayer.position()
         frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
         available = [
@@ -438,12 +440,12 @@ class VideoAnnotationDialog(QDialog):
                 )
                 self.refresh_annotation_table()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event) -> None:
         if self.cap_preview.isOpened():
             self.cap_preview.release()
         event.accept()
 
-    def toggle_full_screen(self):
+    def toggle_full_screen(self) -> None:
         if self.windowState() & Qt.WindowState.WindowFullScreen:
             self.setWindowState(Qt.WindowState.WindowNoState)
         else:
