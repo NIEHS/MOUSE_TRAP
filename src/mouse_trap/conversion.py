@@ -1,3 +1,5 @@
+"""Conversion helpers and worker thread for videos, images, PDFs, DOCX, and TXT."""
+
 import subprocess
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from typing import Optional, Tuple, Union
 def video_to_avi(
     input_path: Union[Path, str], avi_path: Union[Path, str]
 ) -> Tuple[bool, str]:
+    """Convert a video/sequence to MJPEG AVI using ffmpeg; returns (success, message)."""
     cmd = [
         "ffmpeg",
         "-i",
@@ -64,6 +67,7 @@ class ConversionThread(QThread):
         conversion_type: str,
         parent: Optional[object] = None,
     ) -> None:
+        """Store input/output paths and selected conversion type."""
         super().__init__(parent)
         self.input_file = Path(input_file)
         self.output_file = Path(output_file)
@@ -71,6 +75,7 @@ class ConversionThread(QThread):
         self.total_duration_ms = None  # Only used for ffmpeg conversions if needed
 
     def run(self) -> None:
+        """Dispatch to the selected conversion routine and emit result signals."""
         try:
             success, msg = False, "Unknown conversion"
             if self.conversion_type == "seq_to_mp4":
@@ -106,6 +111,7 @@ class ConversionThread(QThread):
             self.finished_signal.emit(False, str(e))
 
     def seq_to_mp4(self) -> Tuple[bool, str]:
+        """Transcode .seq frames to .mp4 via OpenCV, emitting progress."""
         cap = cv2.VideoCapture(str(self.input_file))
         if not cap.isOpened():
             return False, f"Could not open {self.input_file} as .seq."
@@ -132,6 +138,7 @@ class ConversionThread(QThread):
         return True, f"Converted .seq to .mp4: {self.output_file}"
 
     def ffmpeg_video_convert(self) -> Tuple[bool, str]:
+        """Transcode between video formats via ffmpeg, reporting progress."""
         process = QProcess()
         cmd = [
             "ffmpeg",
@@ -158,6 +165,7 @@ class ConversionThread(QThread):
             return False, "FFmpeg conversion failed."
 
     def handle_ffmpeg_output(self, process: QProcess) -> None:
+        """Parse ffmpeg -progress output and emit percent complete."""
         output = process.readAllStandardOutput().data().decode()
         for line in output.splitlines():
             if line.startswith("out_time_ms="):
@@ -170,6 +178,7 @@ class ConversionThread(QThread):
                     pass
 
     def image_to_image(self) -> Tuple[bool, str]:
+        """Convert between common image formats using Pillow."""
         try:
             img = Image.open(self.input_file)
             if img.mode in ["RGBA", "P"]:
@@ -180,6 +189,7 @@ class ConversionThread(QThread):
             return False, f"Image conversion failed: {str(e)}"
 
     def image_to_pdf(self) -> Tuple[bool, str]:
+        """Write the input image as a single-page PDF."""
         try:
             img = Image.open(self.input_file)
             if img.mode in ("RGBA", "P"):
@@ -190,6 +200,7 @@ class ConversionThread(QThread):
             return False, f"Image->PDF conversion failed: {str(e)}"
 
     def pdf_to_image(self) -> Tuple[bool, str]:
+        """Export each PDF page as an image file in the target directory."""
         try:
             base_name = self.output_file.stem
             out_dir = self.output_file.parent
@@ -207,6 +218,7 @@ class ConversionThread(QThread):
             return False, f"PDF->Image conversion failed: {str(e)}"
 
     def pdf_to_docx(self) -> Tuple[bool, str]:
+        """Convert PDF to DOCX via pypandoc."""
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "docx", outputfile=str(self.output_file)
@@ -218,6 +230,7 @@ class ConversionThread(QThread):
             return False, f"PDF->DOCX failed: {str(e)}"
 
     def pdf_to_txt(self) -> Tuple[bool, str]:
+        """Extract text from PDF to a .txt via pypandoc."""
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "plain", outputfile=str(self.output_file)
@@ -229,6 +242,7 @@ class ConversionThread(QThread):
             return False, f"PDF->TXT failed: {str(e)}"
 
     def docx_to_pdf(self) -> Tuple[bool, str]:
+        """Convert a DOCX document to PDF."""
         try:
             docx2pdf_convert(str(self.input_file), str(self.output_file))
             return True, f"DOCX->PDF conversion to {self.output_file} completed."
@@ -236,6 +250,7 @@ class ConversionThread(QThread):
             return False, f"DOCX->PDF failed: {str(e)}"
 
     def docx_to_txt(self) -> Tuple[bool, str]:
+        """Convert a DOCX document to plain text."""
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "plain", outputfile=str(self.output_file)
@@ -247,6 +262,7 @@ class ConversionThread(QThread):
             return False, f"DOCX->TXT failed: {str(e)}"
 
     def txt_to_pdf(self) -> Tuple[bool, str]:
+        """Convert a plain-text file to PDF."""
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "pdf", outputfile=str(self.output_file)
@@ -258,6 +274,7 @@ class ConversionThread(QThread):
             return False, f"TXT->PDF failed: {str(e)}"
 
     def txt_to_docx(self) -> Tuple[bool, str]:
+        """Convert a plain-text file to DOCX."""
         try:
             output = pypandoc.convert_file(
                 str(self.input_file), "docx", outputfile=str(self.output_file)
@@ -269,6 +286,7 @@ class ConversionThread(QThread):
             return False, f"TXT->DOCX failed: {str(e)}"
 
     def generic_conversion(self) -> Tuple[bool, str]:
+        """Fallback ffmpeg path when no specialized converter applies."""
         cmd = ["ffmpeg", "-i", str(self.input_file), "-y", str(self.output_file)]
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, stderr = process.communicate()

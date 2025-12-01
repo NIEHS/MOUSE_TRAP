@@ -1,3 +1,5 @@
+"""Application entry point: initialize QApplication, set light palette, and launch the main window."""
+
 import sys
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
@@ -7,6 +9,7 @@ from .gui import MainWindow
 
 
 def main() -> None:
+    """Start the GUI and block until exit."""
     app = QApplication(sys.argv)
     # Light palette
     palette = app.palette()
