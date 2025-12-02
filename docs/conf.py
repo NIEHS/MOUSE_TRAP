@@ -1,3 +1,5 @@
+"""Sphinx configuration for the MOUSE-TRAP documentation."""
+
 import os
 import sys
 from datetime import datetime
@@ -13,6 +15,9 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
 ]
+napoleon_google_docstring = True
+napoleon_numpy_docstring = False
+napoleon_attr_annotations = True
 templates_path = ["_templates"]
 exclude_patterns = []
 

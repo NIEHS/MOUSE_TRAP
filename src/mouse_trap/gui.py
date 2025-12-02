@@ -33,7 +33,27 @@ from typing import Dict, Tuple
 
 
 class MainWindow(QMainWindow):
-    """Qt GUI that orchestrates conversions, annotations, and SLEAP batch operations."""
+    """Desktop GUI for conversions, annotation-based clipping, and SLEAP helpers.
+
+    The window provides three workflows:
+
+    1) Convert videos, images, or documents with a progress bar and console.
+    2) Clip videos by (enter, exit) frame annotations collected in a dialog.
+    3) SLEAP: launch the labeler or run batch inference from a guided form.
+
+    Attributes:
+        input_file: The currently selected file when processing one item.
+        input_files: List of files selected when running a batch.
+        output_file: Destination path computed for the active item.
+        output_folder: Optional override directory for outputs.
+        current_extension: Lower-cased file extension of the active input.
+        file_list: The queue of files to process.
+        current_file_index: Index into ``file_list`` for batch processing.
+        temp_avi_file: Temporary MJPEG AVI used for precise frame scrubbing.
+        csv_annotations_mapping: Optional mapping loaded from CSV.
+        OUTPUT_FORMATS: Map of input extension → list of allowed output extensions.
+
+    """
 
     def __init__(self) -> None:
         """Build the UI and initialize state."""
@@ -186,7 +206,10 @@ class MainWindow(QMainWindow):
         self.setStyleSheet("QMainWindow { background-color: #FFFFFF; }")
 
     def _append_console(self, s: str) -> None:
-        """Append a line to the console widget safely."""
+        """Append a single line to the scrollback console.
+
+        Gracefully no-ops if the widget is unavailable (e.g., during teardown).
+        """
         try:
             if s:
                 self.console.appendPlainText(s.rstrip("\n"))
@@ -194,7 +217,10 @@ class MainWindow(QMainWindow):
             pass
 
     def _append_process_output(self, proc: QProcess) -> None:
-        """Stream a QProcess' stdout into the console."""
+        """Stream the standard output of a running :class:`QProcess` into the console.
+
+        Each line is appended as it becomes available.
+        """
         try:
             data = proc.readAllStandardOutput().data().decode(errors="ignore")
             if data:
@@ -204,7 +230,12 @@ class MainWindow(QMainWindow):
             pass
 
     def toggle_output_folder_button(self, state: int) -> None:
-        """Enable or disable the output folder button based on checkbox state."""
+        """Enable/disable the output-folder picker and clear state when disabled.
+
+        Args:
+            state: The checked state from the Select Output Folder checkbox.
+
+        """
         if state == Qt.CheckState.Checked.value:
             self.output_folder_button.setEnabled(True)
         else:
@@ -212,13 +243,17 @@ class MainWindow(QMainWindow):
             self.output_folder = None
 
     def select_output_folder(self) -> None:
-        """Select and store the output directory."""
+        """Open a folder picker and save the chosen directory as the output target."""
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder:
             self.output_folder = folder
 
     def select_file(self) -> None:
-        """Select one or multiple input files and update allowed output formats."""
+        """Pick one or many input files and refresh allowed output formats.
+
+        Behavior depends on the Select Multiple Files checkbox. When multiple
+        files are selected, the first file determines the output-format menu.
+        """
         file_dialog = QFileDialog()
         if self.multiple_files_checkbox.isChecked():
             file_paths, _ = file_dialog.getOpenFileNames(
@@ -239,7 +274,15 @@ class MainWindow(QMainWindow):
                 self.update_output_options()
 
     def select_folders_and_filter(self) -> None:
-        """Pick folders, filter by extension (optional recursion), and queue files."""
+        """Queue files from one or more folders filtered by extension.
+
+        The user selects folders, optionally includes subfolders, and provides an
+        extension (e.g., ``.mp4``). Matching files are de-duplicated and queued.
+
+        Notes:
+            If no matches are found, a No Files message is shown.
+
+        """
         dialog = QFileDialog(self, "Select Input Folders")
         dialog.setFileMode(QFileDialog.FileMode.Directory)
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
@@ -294,7 +337,10 @@ class MainWindow(QMainWindow):
             )
 
     def update_output_options(self) -> None:
-        """Populate the output format combo based on current input extension."""
+        """Populate the Output Format combo for the active input extension.
+
+        If the extension is unknown, defaults to ``.mp4``.
+        """
         self.output_combo.clear()
         if self.current_extension in self.OUTPUT_FORMATS:
             self.output_combo.addItems(self.OUTPUT_FORMATS[self.current_extension])
@@ -302,7 +348,12 @@ class MainWindow(QMainWindow):
             self.output_combo.addItem(".mp4")
 
     def import_csv_annotations_multi(self) -> None:
-        """Load CSV mapping (file_name -> intruder enter/exit frames) for clipping."""
+        """Load (per-file) intruder intervals from a CSV into memory.
+
+        The CSV must include a ``file_name`` column and any number of ``<name>_in``
+        / ``<name>_out`` pairs. Errors are reported via message boxes, and the
+        in-memory mapping is updated on success.
+        """
         fileName, _ = QFileDialog.getOpenFileName(
             self, "Import CSV Annotations for Multiple Files", "", "CSV Files (*.csv)"
         )
@@ -353,7 +404,11 @@ class MainWindow(QMainWindow):
         )
 
     def start_conversion(self) -> None:
-        """Queue files and kick off conversion or clipping."""
+        """Kick off processing for the current selection.
+
+        Prompts whether to confirm each file in multi-file mode, then seeds
+        :attr:`file_list` and calls :meth:`process_next_file`.
+        """
         reply = QMessageBox.question(
             self,
             "Prompt Setting",
@@ -375,7 +430,13 @@ class MainWindow(QMainWindow):
             return
 
     def process_next_file(self) -> None:
-        """Process the next file in the queue; handle prompts and cleanup."""
+        """Process the next file in the queue.
+
+        Handles per-file prompts, resolves output paths, runs either the
+        clip workflow (with temporary AVI and annotation dialog) or the
+        standard conversion workflow via :class:`ConversionThread`. Advances
+        the queue and updates progress UI accordingly.
+        """
         if self.current_file_index < len(self.file_list):
             self.input_file = self.file_list[self.current_file_index]
             self.current_extension = self.input_file.suffix.lower()
@@ -494,7 +555,16 @@ class MainWindow(QMainWindow):
             self.select_file_button.setEnabled(True)
 
     def determine_conversion_type(self, input_ext: str, output_ext: str) -> str:
-        """Return the conversion type string for the given input/output extensions."""
+        """Return the conversion key for a given input/output pair.
+
+        Args:
+            input_ext: Lower-cased input extension (e.g., ``.mp4``).
+            output_ext: Selected output extension (e.g., ``.avi``).
+
+        Returns:
+            A conversion key such as ``"video_to_video"``.
+
+        """
         if input_ext == ".seq" and output_ext == ".mp4":
             return "seq_to_mp4"
         elif input_ext == ".seq" and output_ext == ".avi":
@@ -527,12 +597,16 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int)
     def update_progress(self, value: int) -> None:
-        """Update the progress bar."""
+        """Update the progress bar to ``value`` percent."""
         self.progress_bar.setValue(value)
 
     @pyqtSlot(bool, str)
     def on_conversion_finished(self, success: bool, message: str) -> None:
-        """Handle completion of a conversion and continue with the next file."""
+        """Handle completion of a conversion.
+
+        On failure, shows a modal error and re-enables controls. On success,
+        advances the queue by calling :meth:`process_next_file`.
+        """
         if not success:
             QMessageBox.critical(self, "Error", message)
             self.convert_button.setEnabled(True)
@@ -545,7 +619,19 @@ class MainWindow(QMainWindow):
     def clip_by_annotations(
         self, annotations: Dict[str, Dict[str, int]], video_path: Path
     ) -> Tuple[bool, str]:
-        """Write per intruder clips based on annotated frame intervals; returns (success, message)."""
+        """Write one output clip per intruder interval.
+
+        Validates intervals (both enter/exit set, exit ≥ enter, no overlaps), opens
+        the source video, and writes a clip per intruder using a format-specific codec.
+
+        Args:
+            annotations: Mapping of intruder name → ``{"enter": int, "exit": int}``.
+            video_path: Path to the frame-accurate source (the temp AVI or original AVI).
+
+        Returns:
+            Tuple[bool, str]: ``(success, message)`` summarizing the result.
+
+        """
         intervals = []
         for intruder, data in annotations.items():
             if "enter" not in data or "exit" not in data:
@@ -604,7 +690,16 @@ class MainWindow(QMainWindow):
         return True, f"Successfully clipped intruders for file {self.input_file.name}."
 
     def launch_sleap(self) -> None:
-        """Launch the SLEAP labeling GUI via PATH/conda discovery and stream output."""
+        """Launch *SLEAP Label* and stream its console output.
+
+        Resolution order is:
+
+        1) ``SLEAP_LABEL`` environment variable.
+        2) ``sleap-label`` on ``PATH``.
+        3) ``conda run -n sleap sleap-label`` using a discovered conda executable.
+
+        Shows a message if startup fails.
+        """
         try:
             proc = QProcess(self)
             proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
@@ -688,7 +783,11 @@ class MainWindow(QMainWindow):
             self.sleap_button.setEnabled(True)
 
     def start_sleap_batch(self) -> None:
-        """Collect parameters and start the SLEAP batch thread."""
+        """Collect parameters and run sleap-nn track jobs in a worker thread.
+
+        Opens :class:`SleapBatchDialog`, then constructs :class:`SleapBatchThread`,
+        wires up progress and line streaming, and starts the thread.
+        """
         dlg = SleapBatchDialog(self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -705,17 +804,17 @@ class MainWindow(QMainWindow):
         self.sleapThread.start()
 
     def _on_sleap_progress(self, percent: int, name: str) -> None:
-        """Update UI with batch progress percentage."""
+        """Update the progress bar during batch inference."""
         try:
             self.progress_bar.setValue(percent)
         except Exception:
             pass
 
     def _on_sleap_line(self, text: str) -> None:
-        """Append a single output line from the batch process."""
+        """Append one line of output from the SLEAP CLI to the console."""
         self._append_console(text)
 
     def _on_sleap_done(self) -> None:
-        """Re-enable controls and notify when batch completes."""
+        """Re-enable the Run SLEAP Inference button and notify the user."""
         self.sleap_batch_button.setEnabled(True)
         QMessageBox.information(self, "SLEAP", "Batch inference finished.")

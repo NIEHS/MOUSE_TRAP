@@ -56,5 +56,5 @@ src = ["src", "tests"]
 exclude = ["build", "dist", ".venv", "docs/_build"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E203", "E501"]
+select = ["E", "F", "W", "D"]
+ignore = ["E203", "E501", "D105", "D107"]

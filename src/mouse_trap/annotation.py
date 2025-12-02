@@ -35,10 +35,21 @@ from pathlib import Path
 # Integrated Video Annotation Dialog (using Qt Multimedia)
 # -----------------------------------------------------------------------------
 class VideoAnnotationDialog(QDialog):
-    """Interactive video annotation dialog using Qt Multimedia and OpenCV."""
+    """Interactive dialog for frame-accurate (enter, exit) annotations.
+
+    Provides a video player (Qt Multimedia), a live OpenCV preview, and a table of
+    intruders with editable *Enter*/*Exit* frames. Single-click seeks, double-click
+    edits. Rows can be duplicated or deleted via a context menu.
+    """
 
     def __init__(self, video_path: Union[str, Path], parent=None) -> None:
-        """Initialize the dialog, load video metadata, and build the UI."""
+        """Initialize widgets, read FPS/frame count, and show the first frame.
+
+        Args:
+            video_path: Path to a video readable by Qt/OpenCV.
+            parent: Optional parent widget.
+
+        """
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Window)
         self.setWindowTitle("Video Annotation")
@@ -67,7 +78,7 @@ class VideoAnnotationDialog(QDialog):
         self.mediaPlayer.setPosition(initial_position)
 
     def init_video_section(self) -> None:
-        """Create the video player, preview label, transport controls, and wire signals."""
+        """Create the player, preview, transport controls, and wire signals."""
         self.videoSection = QWidget(self)
         layout = QVBoxLayout(self.videoSection)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -126,7 +137,7 @@ class VideoAnnotationDialog(QDialog):
         layout.addLayout(controlLayout)
 
     def init_annotation_panel(self) -> None:
-        """Create the annotations panel (CSV import/clear + table)."""
+        """Create the table and buttons for importing/clearing annotations."""
         self.annotationGroup = QGroupBox("Annotations", self)
         annLayout = QVBoxLayout(self.annotationGroup)
         annLayout.setContentsMargins(5, 5, 5, 5)
@@ -159,7 +170,7 @@ class VideoAnnotationDialog(QDialog):
         self.refresh_annotation_table()
 
     def setup_splitter(self) -> None:
-        """Arrange video section and annotation panel in a vertical splitter."""
+        """Arrange the video and annotation panels in a vertical splitter."""
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         splitter.addWidget(self.videoSection)
         splitter.addWidget(self.annotationGroup)
@@ -170,18 +181,21 @@ class VideoAnnotationDialog(QDialog):
         self.setLayout(mainLayout)
 
     def on_cell_clicked(self, row: int, column: int) -> None:
-        """Start single-click timer to disambiguate from double-click."""
+        """Start a single-click timer so single vs. double click can be disambiguated."""
         self.clicked_row = row
         self.clicked_column = column
         self.singleClickTimer.start(250)
 
     def on_cell_double_clicked(self, row: int, column: int) -> None:
-        """Cancel pending single-click behavior when a double-click occurs."""
+        """Cancel pending single-click behavior if a double click occurs."""
         if self.singleClickTimer.isActive():
             self.singleClickTimer.stop()
 
     def perform_single_click(self) -> None:
-        """Seek to the frame number typed/clicked in the Enter/Exit cell."""
+        """Seek to the frame number stored in the clicked Enter/Exit cell.
+
+        Ignores non-integer values.
+        """
         if self.clicked_column in [1, 2]:
             item = self.annotationTable.item(self.clicked_row, self.clicked_column)
             try:
@@ -192,7 +206,7 @@ class VideoAnnotationDialog(QDialog):
                 pass
 
     def show_context_menu(self, pos) -> None:
-        """Show context menu to duplicate or delete the selected intruder row."""
+        """Show a menu with Duplicate and Delete actions for the selected row."""
         index = self.annotationTable.indexAt(pos)
         if not index.isValid():
             return
@@ -220,7 +234,7 @@ class VideoAnnotationDialog(QDialog):
                 self.refresh_annotation_table()
 
     def eventFilter(self, source, event) -> bool:
-        """Handle Delete key in the table to remove selected rows."""
+        """Handle the Delete key to remove selected intruder rows."""
         if source is self.annotationTable and event.type() == QEvent.Type.KeyPress:
             if event.key() == Qt.Key.Key_Delete:
                 selected_rows = {
@@ -235,7 +249,11 @@ class VideoAnnotationDialog(QDialog):
         return super().eventFilter(source, event)
 
     def import_csv_annotations_multi(self) -> None:
-        """Import per-file annotations from CSV (file_name, <name>_in, <name>_out)."""
+        """Import annotations from a CSV with ``file_name`` and ``<name>_in/_out`` columns.
+
+        On success, shows a confirmation message. On errors (missing header, parse
+        issues), displays a critical message dialog.
+        """
         fileName, _ = QFileDialog.getOpenFileName(
             self, "Import CSV Annotations for Multiple Files", "", "CSV Files (*.csv)"
         )
@@ -284,12 +302,12 @@ class VideoAnnotationDialog(QDialog):
         )
 
     def clear_annotations(self) -> None:
-        """Clear all annotations and refresh the table."""
+        """Remove all annotations and refresh the table UI."""
         self.annotations = {}
         self.refresh_annotation_table()
 
     def refresh_annotation_table(self) -> None:
-        """Repopulate the table from the in-memory annotations dict."""
+        """Repopulate the table from :attr:`annotations` without emitting signals."""
         self.annotationTable.blockSignals(True)
         self.annotationTable.setRowCount(0)
         for i, (intruder, data) in enumerate(self.annotations.items()):
@@ -304,7 +322,7 @@ class VideoAnnotationDialog(QDialog):
         self.annotationTable.blockSignals(False)
 
     def table_item_changed(self, item) -> None:
-        """Persist manual cell edits back into the annotations dict."""
+        """Persist manual edits in the table back to :attr:`annotations`."""
         row = item.row()
         intruder_item = self.annotationTable.item(row, 0)
         if not intruder_item:
@@ -318,7 +336,7 @@ class VideoAnnotationDialog(QDialog):
         self.annotations[intruder] = {"enter": enter, "exit": exit_val}
 
     def toggle_play(self) -> None:
-        """Toggle play/pause state of the media player."""
+        """Toggle play/pause and update the button text accordingly."""
         if self.mediaPlayer.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.mediaPlayer.pause()
             self.playButton.setText("Play")
@@ -327,14 +345,14 @@ class VideoAnnotationDialog(QDialog):
             self.playButton.setText("Pause")
 
     def position_changed(self, position: int) -> None:
-        """Sync slider, frame label, and preview when playback position changes."""
+        """Update the slider, frame label (1-indexed), and preview when playback moves."""
         self.positionSlider.setValue(position)
         frame = min(int(position / 1000.0 * self.fps) + 1, self.total_frames)
         self.frameLabel.setText(f"Frame: {frame if frame > 0 else 1}")
         self.update_preview()
 
     def duration_changed(self, duration: int) -> None:
-        """Update slider range/step after media duration becomes available."""
+        """Set slider range and step once the media duration is known."""
         self.positionSlider.setRange(0, duration)
         self.positionSlider.setSingleStep(int(1000 / self.fps))
 
@@ -343,7 +361,7 @@ class VideoAnnotationDialog(QDialog):
         self.mediaPlayer.setPosition(position)
 
     def slider_released(self) -> None:
-        """Snap to whole-frame boundaries when the slider is released."""
+        """Snap to exact frame boundaries when the slider is released."""
         pos = self.positionSlider.value()
         frame_ms = int(1000 / self.fps)
         rounded = round(pos / frame_ms) * frame_ms
@@ -351,7 +369,7 @@ class VideoAnnotationDialog(QDialog):
         QTimer.singleShot(150, self.update_preview)
 
     def update_preview(self) -> None:
-        """Grab a frame via OpenCV at the current position and render to the preview."""
+        """Grab the nearest frame via OpenCV and render a scaled preview image."""
         position = self.mediaPlayer.position()
         self.cap_preview.set(cv2.CAP_PROP_POS_MSEC, position)
         ret, frame = self.cap_preview.read()
@@ -375,17 +393,17 @@ class VideoAnnotationDialog(QDialog):
             self.previewLabel.setPixmap(pixmap)
 
     def resizeEvent(self, event) -> None:
-        """Update preview to match the new widget size."""
+        """Keep the preview in sync with the widget size."""
         super().resizeEvent(event)
         self.update_preview()
 
     def showEvent(self, event) -> None:
-        """Trigger a preview update when the dialog is first shown."""
+        """Refresh the preview the first time the dialog becomes visible."""
         super().showEvent(event)
         QTimer.singleShot(0, self.update_preview)
 
     def keyPressEvent(self, event) -> None:
-        """Arrow keys scrub by the selected step; otherwise fall back to default handling."""
+        """Scrub left/right by the selected step; otherwise fall back to default handling."""
         try:
             step = int(self.scrubStepCombo.currentText())
         except ValueError:
@@ -402,7 +420,10 @@ class VideoAnnotationDialog(QDialog):
             super().keyPressEvent(event)
 
     def mark_enter(self) -> None:
-        """Prompt for an intruder name and record its entry frame."""
+        """Prompt for an intruder name and record the current frame as Enter.
+
+        Warns if an enter frame already exists for that intruder.
+        """
         current_position = self.mediaPlayer.position()
         frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
         intruder_name, ok = QInputDialog.getText(
@@ -428,7 +449,10 @@ class VideoAnnotationDialog(QDialog):
                 self.refresh_annotation_table()
 
     def mark_exit(self) -> None:
-        """Select an intruder and record its exit frame."""
+        """Record Exit for an intruder (select an existing one or type a new one).
+
+        Warns if an exit frame already exists for that intruder.
+        """
         current_position = self.mediaPlayer.position()
         frame = min(int(current_position / 1000.0 * self.fps) + 1, self.total_frames)
         available = [
@@ -469,13 +493,13 @@ class VideoAnnotationDialog(QDialog):
                 self.refresh_annotation_table()
 
     def closeEvent(self, event) -> None:
-        """Release OpenCV resources and accept close."""
+        """Release OpenCV resources before the dialog closes."""
         if self.cap_preview.isOpened():
             self.cap_preview.release()
         event.accept()
 
     def toggle_full_screen(self) -> None:
-        """Toggle full-screen mode."""
+        """Toggle full-screen mode for the dialog."""
         if self.windowState() & Qt.WindowState.WindowFullScreen:
             self.setWindowState(Qt.WindowState.WindowNoState)
         else:

@@ -9,7 +9,11 @@ from .gui import MainWindow
 
 
 def main() -> None:
-    """Start the GUI and block until exit."""
+    """Initialize the Qt application and launch the GUI.
+
+    Blocks until the user closes the main window, then exits with the Qt event
+    loop's return code.
+    """
     app = QApplication(sys.argv)
     # Light palette
     palette = app.palette()

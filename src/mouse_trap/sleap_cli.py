@@ -30,7 +30,11 @@ from typing import Any, Dict, List, Tuple, Optional
 # Helpers
 # -----------------------------------------------------------------------------
 def _canon_path(p: str) -> str:
-    """Normalize a path for reliable comparisons and dictionary keys."""
+    """Return a normalized absolute path suitable for dictionary keys.
+
+    Uses ``abspath`` + ``normpath`` + case-folding where appropriate to ensure
+    stable comparisons across platforms.
+    """
     try:
         return os.path.normcase(os.path.abspath(os.path.normpath(str(p))))
     except Exception:
@@ -38,7 +42,22 @@ def _canon_path(p: str) -> str:
 
 
 def parse_latest_status(log_path: str) -> Dict[str, str]:
-    """Parse a tab-separated batch log into {normalized_input_path: 'OK'|'FAIL'}."""
+    """Parse a tab-separated batch log into a map of latest statuses.
+
+    Each log line is expected to be::
+
+        TIMESTAMP <tab> STATUS <tab> INPUT_PATH <tab> EXTRA
+
+    Only lines with ``STATUS`` in {``OK``, ``FAIL``} are considered; later lines
+    override earlier ones for the same ``INPUT_PATH``.
+
+    Args:
+        log_path: Path to the batch log.
+
+    Returns:
+        Mapping of normalized input path → ``"OK"`` or ``"FAIL"``.
+
+    """
     latest = {}
     if not os.path.exists(log_path):
         return latest
@@ -55,7 +74,11 @@ def parse_latest_status(log_path: str) -> Dict[str, str]:
 
 
 def _resolve_conda_executable() -> str:
-    """Locate a usable 'conda' executable on this system."""
+    """Locate a usable ``conda`` executable.
+
+    Searches the system ``PATH`` and several common installation locations, then
+    falls back to ``"conda"``.
+    """
     for name in ("conda.exe", "conda.bat", "conda"):
         p = shutil.which(name)
         if p:
@@ -435,7 +458,19 @@ CLI_SPEC = [
 
 
 def _make_widget(spec: Dict[str, Any]) -> Tuple[QWidget, QWidget]:
-    """Create a Qt input widget from a CLI spec item; return (row_widget, core_widget)."""
+    """Create a Qt input widget from a CLI spec item.
+
+    Supported types include: ``text``, ``bool``, ``choice``, numeric scalars,
+    and path pickers (``path_in``, ``path_out``, ``paths``).
+
+    Args:
+        spec: One item from :data:`CLI_SPEC`.
+
+    Returns:
+        Tuple of (row widget, core widget). For path types, the row widget includes
+        a browse button; the core widget holds the value.
+
+    """
     t = spec["type"]
     if t in ("path_in", "path_out", "paths", "text"):
         w = QLineEdit()
@@ -497,7 +532,20 @@ def _make_widget(spec: Dict[str, Any]) -> Tuple[QWidget, QWidget]:
 def build_cli_tabs(
     parent: QWidget, spec_list: List[Dict[str, Any]]
 ) -> Tuple[QTabWidget, Dict[str, QWidget]]:
-    """Build tabbed forms for the CLI spec; return (tabs, controls_dict)."""
+    """Build a tabbed form from a CLI spec list.
+
+    Items are grouped by their ``"group"`` key. The function also wires conditional
+    enablement via ``"enable_if"`` dependencies.
+
+    Args:
+        parent: Parent widget for the tab control.
+        spec_list: List of specification dictionaries.
+
+    Returns:
+        A tuple ``(tabs, controls)`` where ``tabs`` is a :class:`QTabWidget` and
+        ``controls`` maps each spec ``"key"`` to the created widget.
+
+    """
     tabs = QTabWidget(parent)
     controls = {}
     groups = {}
@@ -570,7 +618,18 @@ def build_cli_tabs(
 def extract_cli_state(
     controls: Dict[str, QWidget], spec_list: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Read current values from controls into a flat state dict keyed by spec 'key'."""
+    """Read current values from widgets into a flat state dictionary.
+
+    For ``"paths"`` fields, a semicolon-separated string is split into a list.
+
+    Args:
+        controls: Map of ``key`` → widget returned by :func:`build_cli_tabs`.
+        spec_list: The same list used to build the UI.
+
+    Returns:
+        Dict of ``key`` → current value suitable for :func:`args_from_cli_state`.
+
+    """
     state = {}
     from PyQt6.QtWidgets import (
         QCheckBox,
@@ -604,7 +663,22 @@ def args_from_cli_state(
     output_path: str,
     model_default: str = "",
 ) -> List[str]:
-    """Assemble 'sleap-nn track' args from state/spec, including data and output paths."""
+    """Assemble ``sleap-nn track`` arguments from UI state.
+
+    Adds ``--data_path`` and ``--output_path`` first, boolean flags only when
+    checked, and repeats ``--model_paths`` for each provided model directory.
+
+    Args:
+        state: Flat dictionary produced by :func:`extract_cli_state`.
+        spec_list: The CLI spec list (to determine flags and types).
+        data_path: Input video/SLP path for this job.
+        output_path: Output ``.slp`` path for predictions.
+        model_default: Optional default model directory when none provided.
+
+    Returns:
+        A list of command-line argument tokens.
+
+    """
     args = []
     for s in spec_list:
         key = s["key"]
@@ -644,7 +718,12 @@ def args_from_cli_state(
 
 
 class SleapBatchDialog(QDialog):
-    """Dialog to collect batch inference parameters and SLEAP CLI options."""
+    """Modal dialog that collects batch input/output paths and full CLI options.
+
+    The dialog exposes three path fields (videos root, predictions folder, log file),
+    a recursion toggle, an option to skip items that are already ``OK`` in the log,
+    and a tabbed form for everything else from :data:`CLI_SPEC`.
+    """
 
     def __init__(self, parent: Optional[object] = None) -> None:
         super().__init__(parent)
@@ -704,7 +783,11 @@ class SleapBatchDialog(QDialog):
         form.addRow(buttons)
 
     def values(self) -> Dict[str, Any]:
-        """Return a params dict consumed by SleapBatchThread."""
+        """Return a parameter dictionary for :class:`SleapBatchThread`.
+
+        Keys include: ``videos_root``, ``outdir``, ``log``, ``respect_log``,
+        ``include_subfolders``, ``env``, ``exts``, ``conda_exe``, and ``cli_state``.
+        """
         cli_state = extract_cli_state(self.cliControls, CLI_SPEC)
         return dict(
             videos_root=self.videosRoot.text().strip(),
@@ -720,7 +803,13 @@ class SleapBatchDialog(QDialog):
 
 
 class SleapBatchThread(QThread):
-    """Run a SLEAP batch process in a worker thread."""
+    """Run a *SLEAP* batch (``sleap-nn track``) as a worker thread.
+
+    Signals:
+        progress (int, str): Percent complete and current video basename.
+        line (str): One line of CLI output (stdout/stderr merged).
+        done (): Emitted once when all items have been processed.
+    """
 
     #: Progress updates as (percent, video_basename).
     progress = pyqtSignal(int, str)
@@ -737,7 +826,11 @@ class SleapBatchThread(QThread):
         self.p = params
 
     def _collect_videos(self) -> List[str]:
-        """Collect video files under the root (optional recursion), skipping *_frames dirs."""
+        """Collect candidate inputs under ``videos_root``.
+
+        Respects the ``include_subfolders`` option, filters by allowed extensions, and
+        skips any file inside directories named ``_frames`` (case-insensitive).
+        """
         vids = []
         root = self.p["videos_root"]
         if self.p.get("include_subfolders", False):
@@ -768,13 +861,22 @@ class SleapBatchThread(QThread):
         return vids
 
     def _build_out_path(self, video_path: str) -> str:
-        """Map a video path to an output .slp path under the predictions folder."""
+        """Return the sanitized predictions path for a given input.
+
+        The relative path under ``outdir`` is derived from the input's path relative to
+        ``videos_root`` with disallowed characters replaced by underscores, suffixed with
+        ``.predictions.slp``.
+        """
         rel = os.path.relpath(video_path, self.p["videos_root"])
         safe = re.sub(r'[\\/:*?"<>|]', "_", rel)
         return os.path.join(self.p["outdir"], f"{safe}.predictions.slp")
 
     def _sleap_args(self, v: str, out_path: str) -> List[str]:
-        """Return the full command/args to run 'sleap-nn track' for one video."""
+        """Return the full command list for one ``sleap‑nn track`` invocation.
+
+        Prefers explicit environment overrides (``SLEAP_NN``), then a direct binary on
+        ``PATH``, and finally a Conda command (``conda run -n <env> sleap-nn track``).
+        """
         sleap_nn = os.environ.get("SLEAP_NN", "")
         if sleap_nn and os.path.exists(sleap_nn):
             base = [sleap_nn, "track"]
@@ -820,7 +922,14 @@ class SleapBatchThread(QThread):
         return base + cli_args
 
     def run(self) -> None:
-        """Run the batch, stream output, update the log, and emit progress signals."""
+        """Execute the batch and stream output to the UI.
+
+        For each video:
+        * Skip if latest status is ``OK`` and ``respect_log`` is set.
+        * Build the output path and CLI args, spawn the process, and stream lines.
+        * Append a tab-separated line to the log with a timestamp and ``OK``/``FAIL``.
+        * Emit :attr:`progress` after each item. Finally emit :attr:`done`.
+        """
         try:
             os.makedirs(self.p["outdir"], exist_ok=True)
             latest = parse_latest_status(self.p["log"]) if self.p["respect_log"] else {}
