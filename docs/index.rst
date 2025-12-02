@@ -1,6 +1,3 @@
-mouse-trap
-================
-
 Welcome to the documentation for **MOUSE_TRAP**.
 
 .. toctree::

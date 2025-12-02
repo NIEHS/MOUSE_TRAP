@@ -22,4 +22,3 @@ try:
     html_theme = "furo"
 except Exception:
     pass
-html_static_path = ["_static"]
