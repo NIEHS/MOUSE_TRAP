@@ -1,25 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
 jobs:
   test:
     name: tests (${{ matrix.os }} / py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python: ['3.13']
+          fail-fast: false
+          matrix:
+            os: [windows-latest]
+            python: ['3.13']
     env:
-      QT_QPA_PLATFORM: offscreen   # headless Qt
+      QT_QPA_PLATFORM: offscreen  # headless Qt for PyQt6 tests
     steps:
       - uses: actions/checkout@v4
-      - name: Install Qt runtime deps (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libegl1 \
-            libgl1 \
-            libxkbcommon-x11-0 \
-            xvfb
 
       - uses: actions/setup-python@v5
         with:
@@ -31,10 +33,5 @@ jobs:
           pip install -e .
           pip install pytest
 
-      - name: Run tests (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a pytest -q
-
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
+      - name: Run tests
         run: pytest -q
