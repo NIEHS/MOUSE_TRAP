@@ -27,7 +27,7 @@ start docs/_build/html/index.html # MacOS: open docs/_build/html/index.html
 
 ## Who uses this?
 
-Developed for the Neurobehavioral Circuits Group (NBCG) under the guidance of Dr. Julieta Lischinsky. The  which studies the developmental and circuit mechanisms underlying social behaviors.
+Developed for the Neurobehavioral Circuits Group (NBCG) under the guidance of Dr. Julieta Lischinsky. The NBCG studies the developmental and circuit mechanisms underlying social behaviors.
 
 
 ## Features
