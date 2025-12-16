@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 from .conversion import video_to_avi, ConversionThread
 from .annotation import VideoAnnotationDialog
 from .sleap_cli import SleapBatchDialog, SleapBatchThread
+from .simba_labels import convert_caltech_to_simba_targets
 from typing import Dict, Tuple
 
 
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         annotation_layout = QHBoxLayout()
         self.clip_checkbox = QCheckBox("Clip")
         annotation_layout.addWidget(self.clip_checkbox)
+
         self.select_annotation_file_button = QPushButton("Import CSV Annotations")
         self.select_annotation_file_button.clicked.connect(
             self.import_csv_annotations_multi
@@ -129,7 +131,21 @@ class MainWindow(QMainWindow):
             QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         )
         annotation_layout.addWidget(self.select_annotation_file_button)
+
+        # Caltech -> SimBA label conversion helper
+        self.simba_convert_button = QPushButton("Caltech \u2192 SimBA")
+        self.simba_convert_button.clicked.connect(self.run_caltech_to_simba)
+        self.simba_convert_button.setToolTip(
+            "Convert Caltech Behavior Annotator .txt + SimBA features_extracted CSV "
+            "into a SimBA targets_inserted CSV."
+        )
+        self.simba_convert_button.setSizePolicy(
+            QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        )
+        annotation_layout.addWidget(self.simba_convert_button)
+
         self.sleap_button = QPushButton("Launch SLEAP")
+        self.sleap_button.clicked.connect(self.launch_sleap)
         self.sleap_button.clicked.connect(self.launch_sleap)
         self.sleap_button.setSizePolicy(
             QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -402,6 +418,91 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "CSV Imported", "CSV annotations mapping imported successfully."
         )
+
+    def run_caltech_to_simba(self) -> None:
+        """Interactive helper to create a SimBA ``targets_inserted`` CSV.
+
+        This opens three file dialogs:
+
+        1. Caltech Behavior Annotator .txt file (for one video).
+        2. SimBA ``features_extracted`` CSV produced from the matching SLEAP file.
+        3. Output location for the new SimBA targets CSV.
+
+        The output file will contain all original feature columns plus one
+        0/1 column per behavior.
+        """
+        # 1) Caltech Behavior Annotator file
+        annotation_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Caltech Behavior Annotator .txt file",
+            "",
+            "Text files (*.txt);;All Files (*.*)",
+        )
+        if not annotation_path:
+            return
+
+        # 2) SimBA features_extracted CSV
+        start_dir = str(Path(annotation_path).parent)
+        features_csv_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select SimBA features_extracted CSV for the same video",
+            start_dir,
+            "CSV files (*.csv);;All Files (*.*)",
+        )
+        if not features_csv_path:
+            return
+
+        # 3) Output path (typically inside <SimBA project>/csv/targets_inserted/)
+        default_output = str(
+            Path(features_csv_path).with_name(
+                Path(features_csv_path).stem + "_targets.csv"
+            )
+        )
+        output_csv_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Choose output CSV for SimBA targets_inserted",
+            default_output,
+            "CSV files (*.csv);;All Files (*.*)",
+        )
+        if not output_csv_path:
+            return
+
+        # Simple choice: include all behaviors (except "other")?
+        reply = QMessageBox.question(
+            self,
+            "Behaviors to include",
+            (
+                "Include all behaviors from the annotation (except 'other') "
+                "as SimBA classifier targets?\n\n"
+                "Choose 'Yes' for all behaviors, or 'No' if you plan to restrict "
+                "the set later in code."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        include_all_flag = reply == QMessageBox.StandardButton.Yes
+
+        self._append_console(
+            "Caltech -> SimBA conversion:\n"
+            f"  Annotation: {annotation_path}\n"
+            f"  Features:   {features_csv_path}\n"
+            f"  Output:     {output_csv_path}"
+        )
+
+        ok, message = convert_caltech_to_simba_targets(
+            annotation_path=annotation_path,
+            features_csv_path=features_csv_path,
+            output_csv_path=output_csv_path,
+            included_behaviors=None,
+            include_all_behaviors_from_annotation=include_all_flag,
+        )
+
+        if ok:
+            QMessageBox.information(self, "SimBA Targets", message)
+        else:
+            QMessageBox.critical(self, "SimBA Conversion Error", message)
+
+        self._append_console(message)
 
     def start_conversion(self) -> None:
         """Kick off processing for the current selection.

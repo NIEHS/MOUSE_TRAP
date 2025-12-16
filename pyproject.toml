@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mouse-trap"
 version = "0.1.0"
-description = "MOUSE-TRAP — Multi-Format File Converter & Video Annotator"
+description = "MOUSE-TRAP: MOdular Unsupervised poSe Estimation and TRacking with behavioral Annotation and Prediction"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "Riley Harper"},]
@@ -18,6 +18,8 @@ dependencies = [
   "pdf2image>=1.16",
   "pypandoc>=1.11",
   "docx2pdf>=0.1.8",
+  "pandas>=2.0",
+  "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
