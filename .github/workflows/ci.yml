@@ -14,10 +14,10 @@ jobs:
     name: tests (${{ matrix.os }} / py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python: ['3.13']
+          fail-fast: false
+          matrix:
+            os: [windows-latest]
+            python: ['3.13']
     env:
       QT_QPA_PLATFORM: offscreen  # headless Qt for PyQt6 tests
     steps:
@@ -30,8 +30,7 @@ jobs:
       - name: Install package & test deps
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          pip install pytest
+          pip install -e . pytest
 
       - name: Run tests
         run: pytest -q

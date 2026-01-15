@@ -185,22 +185,44 @@ class ConversionThread(QThread):
         """Transcode between common video formats via FFmpeg.
 
         FFmpeg is run with ``-progress pipe:1``; progress lines are parsed by
-        :meth:`handle_ffmpeg_output`.
-
-        Returns:
-            Tuple[bool, str]: ``(True, message)`` on success; otherwise ``(False, message)``.
-
+        :meth:`handle_ffmpeg_output`. When writing MP4, use SLEAP‑recommended
+        H.264 settings for maximum compatibility.
         """
         process = QProcess()
+
+        # Base command (progress to stdout so we can parse it)
         cmd = [
             "ffmpeg",
             "-i",
             str(self.input_file),
             "-progress",
             "pipe:1",
-            "-y",
-            str(self.output_file),
         ]
+
+        # If the target is MP4, use SLEAP‑recommended encoding:
+        # ffmpeg -y -i input.mp4 -c:v libx264 -pix_fmt yuv420p -preset superfast -crf 23 output.mp4
+        if self.output_file.suffix.lower() == ".mp4":
+            cmd.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-preset",
+                    "superfast",
+                    "-crf",
+                    "23",
+                ]
+            )
+
+        # Overwrite output
+        cmd.extend(
+            [
+                "-y",
+                str(self.output_file),
+            ]
+        )
+
         process.setProgram(cmd[0])
         process.setArguments(cmd[1:])
         process.readyReadStandardOutput.connect(
@@ -391,13 +413,31 @@ class ConversionThread(QThread):
     def generic_conversion(self) -> Tuple[bool, str]:
         """Fallback conversion using a simple FFmpeg invocation.
 
-        Used when no specialized path applies.
+        When the output is MP4, use SLEAP recommended H.264 settings
+        (libx264, yuv420p, preset=superfast, crf=23).
 
         Returns:
             Tuple[bool, str]: Result flag and message.
 
         """
-        cmd = ["ffmpeg", "-i", str(self.input_file), "-y", str(self.output_file)]
+        cmd = ["ffmpeg", "-i", str(self.input_file)]
+
+        # Apply SLEAP‑recommended settings when targeting MP4
+        if self.output_file.suffix.lower() == ".mp4":
+            cmd.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-preset",
+                    "superfast",
+                    "-crf",
+                    "23",
+                ]
+            )
+
+        cmd.extend(["-y", str(self.output_file)])
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, stderr = process.communicate()
         if process.returncode != 0:
